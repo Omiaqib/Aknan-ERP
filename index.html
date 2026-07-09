@@ -1,0 +1,1098 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aknan ERP — app.aknans.sa</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}html,body,#root{height:100%}
+body{font-family:'Inter',sans-serif;background:#F0F2F5;color:#1A1A2E}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#C0C4CC;border-radius:3px}
+input,select,textarea,button{font-family:inherit}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div id="root"><div style="display:flex;height:100vh;align-items:center;justify-content:center;font-size:14px;color:#64748B">Loading…</div></div>
+<script type="text/babel">
+const {useState,useEffect,useCallback}=React;
+
+/* ─── THEME ──────────────────────────────────── */
+const N='#0E2A3D',ST='#1C5D86',AM='#E2722A',LG='#F1F5F9',BD='#E2E8F0',DK='#0F172A',MD='#64748B',GR='#16A34A',RD='#DC2626',YL='#D97706';
+
+/* ─── API ────────────────────────────────────── */
+const api={
+  call:async(method,path,body=null)=>{
+    const opts={method,headers:{'Content-Type':'application/json'},credentials:'include'};
+    if(body)opts.body=JSON.stringify(body);
+    const r=await fetch('/api'+path,opts);
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(d.error||'Request failed');
+    return d;
+  },
+  get:p=>api.call('GET',p),
+  post:(p,b)=>api.call('POST',p,b),
+  put:(p,b)=>api.call('PUT',p,b),
+  del:p=>api.call('DELETE',p),
+};
+
+/* ─── DATA HOOK ──────────────────────────────── */
+function useApi(ep,key){
+  const [data,setData]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const load=useCallback(()=>{
+    setLoading(true);
+    api.get(ep).then(r=>setData(r[key]||[])).catch(()=>setData([])).finally(()=>setLoading(false));
+  },[ep,key]);
+  useEffect(()=>{load();},[load]);
+  return [data,loading,load,setData];
+}
+
+/* ─── SHARED COMPONENTS ──────────────────────── */
+const Av=({ini,color=N,bg='#E8EEF7',size=34})=>(
+  <div style={{width:size,height:size,borderRadius:'50%',background:bg,display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,fontSize:size*.3,color,flexShrink:0}}>{ini||'?'}</div>
+);
+const Chip=({c=ST,bg='#E3F0F9',children})=>(
+  <span style={{background:bg,color:c,fontSize:11,fontWeight:600,padding:'2px 8px',borderRadius:20,whiteSpace:'nowrap'}}>{children}</span>
+);
+const Spinner=()=>(
+  <div style={{display:'flex',justifyContent:'center',padding:48}}>
+    <div style={{width:28,height:28,border:'3px solid '+BD,borderTopColor:ST,borderRadius:'50%',animation:'spin .8s linear infinite'}}/>
+  </div>
+);
+const Empty=({icon='📋',msg})=>(
+  <div style={{textAlign:'center',padding:'48px 0',color:MD}}>
+    <div style={{fontSize:36,marginBottom:10}}>{icon}</div>
+    <div style={{fontSize:13}}>{msg}</div>
+  </div>
+);
+const Toast=({msg,type,onClose})=>{
+  useEffect(()=>{const t=setTimeout(onClose,3500);return()=>clearTimeout(t)},[]);
+  const err=type==='error';
+  return(
+    <div style={{position:'fixed',bottom:24,right:24,zIndex:9999,
+      background:err?'#FEE2E2':'#DCFCE7',border:'1.5px solid '+(err?RD:GR),
+      borderRadius:10,padding:'12px 18px',fontSize:13,fontWeight:500,color:err?'#B91C1C':'#15803D',
+      boxShadow:'0 4px 16px rgba(0,0,0,.12)',minWidth:240}}>
+      {err?'✕ ':'✓ '}{msg}
+    </div>
+  );
+};
+const sStyle=s=>{
+  const m={Active:{c:GR,bg:'#DCFCE7'},Inactive:{c:'#9CA3AF',bg:'#F3F4F6'},
+    Received:{c:GR,bg:'#DCFCE7'},Posted:{c:GR,bg:'#DCFCE7'},Approved:{c:GR,bg:'#DCFCE7'},
+    Delivered:{c:GR,bg:'#DCFCE7'},Confirmed:{c:'#1D4ED8',bg:'#DBEAFE'},Invoiced:{c:'#6D28D9',bg:'#EDE9FE'},
+    Dispatched:{c:'#0369A1',bg:'#E0F2FE'},Submitted:{c:'#0369A1',bg:'#E0F2FE'},Locked:{c:'#374151',bg:'#F3F4F6'},
+    Partial:{c:YL,bg:'#FEF9C3'},Pending:{c:YL,bg:'#FEF9C3'},Draft:{c:'#9CA3AF',bg:'#F3F4F6'},
+    Cancelled:{c:RD,bg:'#FEE2E2'},'On Hold':{c:RD,bg:'#FEE2E2'},Terminated:{c:RD,bg:'#FEE2E2'}};
+  const d=m[s]||{c:MD,bg:LG};
+  return{background:d.bg,color:d.c,fontSize:11,fontWeight:600,padding:'2px 8px',borderRadius:20,whiteSpace:'nowrap'};
+};
+const payChip=m=>{
+  if(!m||m==='-')return null;
+  const cash=m==='Cash';
+  return <span style={{background:cash?'#FEF3C7':'#DBEAFE',color:cash?'#92400E':'#1E40AF',fontSize:10,fontWeight:700,padding:'1px 7px',borderRadius:20}}>{cash?'Cash':'Bank'}</span>;
+};
+const sar=n=>'SAR '+(Number(n)||0).toLocaleString();
+const TH=({ch})=><th style={{padding:'9px 14px',textAlign:'left',fontSize:11,fontWeight:700,color:MD,textTransform:'uppercase',letterSpacing:.5,borderBottom:'1px solid '+BD,background:LG,whiteSpace:'nowrap'}}>{ch}</th>;
+const TD=({children,center})=><td style={{padding:'11px 14px',fontSize:13,color:DK,borderBottom:'1px solid '+BD,verticalAlign:'middle',textAlign:center?'center':'left'}}>{children}</td>;
+
+/* Modal */
+const Modal=({title,onClose,onSave,saveLabel='Save',wide,children})=>(
+  <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+    <div style={{background:'white',borderRadius:14,width:wide?700:480,maxHeight:'90vh',display:'flex',flexDirection:'column',boxShadow:'0 20px 50px rgba(0,0,0,.2)'}}>
+      <div style={{padding:'18px 22px',borderBottom:'1px solid '+BD,display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
+        <div style={{fontSize:15,fontWeight:700,color:DK}}>{title}</div>
+        <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',fontSize:20,color:MD,lineHeight:1}}>✕</button>
+      </div>
+      <div style={{padding:'18px 22px',overflowY:'auto',flex:1}}>{children}</div>
+      <div style={{padding:'14px 22px',borderTop:'1px solid '+BD,display:'flex',gap:10,justifyContent:'flex-end',flexShrink:0}}>
+        <button onClick={onClose} style={{background:'none',border:'1px solid '+BD,borderRadius:7,padding:'9px 18px',fontSize:13,cursor:'pointer'}}>Cancel</button>
+        <button onClick={onSave} style={{background:N,border:'none',borderRadius:7,padding:'9px 20px',fontSize:13,fontWeight:600,cursor:'pointer',color:'white'}}>{saveLabel}</button>
+      </div>
+    </div>
+  </div>
+);
+const FG=({children})=><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>{children}</div>;
+const FI=({label,half,children})=><div style={{marginBottom:14,gridColumn:half?'span 1':'span 2'}}><label style={{fontSize:12,fontWeight:600,color:MD,display:'block',marginBottom:5}}>{label}</label>{children}</div>;
+const Inp=({value,onChange,type='text',placeholder=''})=>(
+  <input value={value||''} onChange={e=>onChange(e.target.value)} type={type} placeholder={placeholder}
+    style={{width:'100%',border:'1.5px solid '+BD,borderRadius:7,padding:'9px 12px',fontSize:13,outline:'none',color:DK}}/>
+);
+const Sel=({value,onChange,children})=>(
+  <select value={value||''} onChange={e=>onChange(e.target.value)}
+    style={{width:'100%',border:'1.5px solid '+BD,borderRadius:7,padding:'9px 12px',fontSize:13,outline:'none',color:DK,background:'white'}}>
+    {children}
+  </select>
+);
+const StatsBar=({items})=>(
+  <div style={{display:'grid',gridTemplateColumns:'repeat('+items.length+',1fr)',gap:12,flexShrink:0}}>
+    {items.map((s,i)=>(
+      <div key={i} style={{background:'white',border:'1px solid '+BD,borderRadius:10,padding:'14px 16px',display:'flex',alignItems:'center',gap:10}}>
+        <div style={{width:38,height:38,borderRadius:9,background:s.bg||'#E8EEF7',display:'flex',alignItems:'center',justifyContent:'center',fontSize:17}}>{s.icon}</div>
+        <div><div style={{fontSize:19,fontWeight:700,color:s.color||N}}>{s.value}</div><div style={{fontSize:11,color:MD,marginTop:1}}>{s.label}</div></div>
+      </div>
+    ))}
+  </div>
+);
+
+/* ─── LOGIN ──────────────────────────────────── */
+const Login=({onLogin})=>{
+  const [email,setEmail]=useState('admin@aknan.com');
+  const [pass,setPass]=useState('');
+  const [err,setErr]=useState('');
+  const [loading,setLoading]=useState(false);
+  const submit=async()=>{
+    if(!email||!pass){setErr('Email and password are required');return;}
+    setLoading(true);setErr('');
+    try{const d=await api.post('/auth/login',{email,password:pass});onLogin(d.user);}
+    catch(e){setErr(e.message||'Invalid email or password');setLoading(false);}
+  };
+  return(
+    <div style={{minHeight:'100vh',background:'linear-gradient(135deg,'+N+','+ST+')',display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+      <div style={{background:'white',borderRadius:16,padding:'40px 44px',width:420,boxShadow:'0 20px 60px rgba(0,0,0,.25)'}}>
+        <div style={{textAlign:'center',marginBottom:30}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,marginBottom:14}}>
+            <svg width="40" height="40" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="21" stroke={AM} strokeWidth="3"/><circle cx="24" cy="24" r="13" stroke={N} strokeWidth="3"/><circle cx="24" cy="24" r="5" fill={AM}/></svg>
+            <div><div style={{fontWeight:700,fontSize:20,color:N}}>AKNAN ERP</div><div style={{fontSize:10,color:MD,letterSpacing:1.4,textTransform:'uppercase'}}>app.aknans.sa</div></div>
+          </div>
+          <div style={{fontSize:21,fontWeight:600,color:DK}}>Sign in to your account</div>
+        </div>
+        {err&&<div style={{background:'#FEE2E2',border:'1px solid #FECACA',borderRadius:8,padding:'10px 14px',fontSize:13,color:'#B91C1C',marginBottom:14}}>{err}</div>}
+        {[{l:'Email',v:email,s:setEmail,t:'email'},{l:'Password',v:pass,s:setPass,t:'password'}].map(f=>(
+          <div key={f.l} style={{marginBottom:14}}>
+            <label style={{fontSize:12,fontWeight:600,color:MD,textTransform:'uppercase',letterSpacing:.5,display:'block',marginBottom:5}}>{f.l}</label>
+            <input value={f.v} onChange={e=>f.s(e.target.value)} type={f.t}
+              onKeyDown={e=>e.key==='Enter'&&submit()}
+              style={{width:'100%',border:'1.5px solid '+BD,borderRadius:8,padding:'11px 14px',fontSize:14,outline:'none',color:DK}}/>
+          </div>
+        ))}
+        <button onClick={submit} disabled={loading} style={{width:'100%',background:loading?ST:N,color:'white',border:'none',borderRadius:8,padding:12,fontSize:15,fontWeight:600,cursor:'pointer',marginTop:6}}>
+          {loading?'Signing in…':'Sign In'}
+        </button>
+        <div style={{textAlign:'center',marginTop:16,fontSize:12,color:MD,background:LG,borderRadius:8,padding:'8px 12px'}}>Default admin: <b>admin@aknan.com</b></div>
+      </div>
+    </div>
+  );
+};
+
+/* ─── DASHBOARD ──────────────────────────────── */
+const Dashboard=({setPage,user})=>{
+  const [stats,setStats]=useState({});
+  const [activity,setActivity]=useState([]);
+  useEffect(()=>{api.get('/dashboard').then(d=>{setStats(d.stats||{});setActivity(d.recent_activity||[]);}).catch(()=>{});},[]);
+  const mods=[['📦','Purchase','purchase'],['💳','Expenses','expense'],['📊','Sales','sales'],['📒','Accounts','accounts'],['👥','HR','hr'],['🚛','Delivery','delivery'],['🏪','Distributor','distributor'],['🏭','Production','production']];
+  return(
+    <div style={{padding:24,overflowY:'auto',height:'100%'}}>
+      <div style={{marginBottom:20}}><div style={{fontSize:21,fontWeight:700,color:DK}}>Good morning, {user?.name?.split(' ')[0]||'Administrator'} 👋</div><div style={{fontSize:13,color:MD,marginTop:3}}>Aknan Specialized for Industry — ERP</div></div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,marginBottom:20}}>
+        {[{icon:'🤝',label:'Customers',value:stats.customers??0,color:ST,bg:'#E3F0F9'},{icon:'📦',label:'Vendors',value:stats.vendors??0,color:YL,bg:'#FEF9C3'},{icon:'👥',label:'Employees',value:stats.employees??0,color:GR,bg:'#DCFCE7'},{icon:'🏪',label:'Distributors',value:stats.distributors??0,color:N,bg:'#E8EEF7'}].map((c,i)=>(
+          <div key={i} style={{background:'white',border:'1px solid '+BD,borderRadius:12,padding:18,display:'flex',alignItems:'center',gap:12}}>
+            <div style={{width:44,height:44,borderRadius:10,background:c.bg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20}}>{c.icon}</div>
+            <div><div style={{fontSize:22,fontWeight:700,color:c.color}}>{c.value}</div><div style={{fontSize:12,color:MD,marginTop:2}}>{c.label}</div></div>
+          </div>
+        ))}
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1.3fr 0.7fr',gap:16,marginBottom:16}}>
+        <div style={{background:'white',border:'1px solid '+BD,borderRadius:12,padding:18}}>
+          <div style={{fontSize:14,fontWeight:600,color:DK,marginBottom:12}}>Modules</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:9}}>
+            {mods.map(([icon,name,id])=>(
+              <button key={id} onClick={()=>setPage(id)} style={{background:LG,border:'1px solid '+BD,borderRadius:8,padding:'10px 12px',cursor:'pointer',textAlign:'left',display:'flex',alignItems:'center',gap:9}}>
+                <span style={{fontSize:18}}>{icon}</span><div style={{fontSize:12,fontWeight:600,color:DK}}>{name}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{background:'white',border:'1px solid '+BD,borderRadius:12,padding:18}}>
+          <div style={{fontSize:14,fontWeight:600,color:DK,marginBottom:12}}>Recent Activity</div>
+          {activity.length===0&&<Empty icon="📋" msg="No activity yet"/>}
+          {activity.slice(0,7).map((a,i)=>(
+            <div key={i} style={{padding:'8px 0',borderBottom:i<Math.min(6,activity.length-1)?'1px solid '+BD:'none',display:'flex',gap:8}}>
+              <div style={{flex:1}}><div style={{fontSize:12,fontWeight:600,color:DK}}>{a.user_name||'System'}</div><div style={{fontSize:11,color:MD}}>{a.action}{a.module?' — '+a.module:''}</div></div>
+              <div style={{fontSize:10,color:'#94A3B8',flexShrink:0}}>{(a.created_at||'').slice(11,16)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{background:'linear-gradient(135deg,'+N+','+ST+')',borderRadius:12,padding:'16px 20px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+        <div><div style={{fontSize:14,fontWeight:700,color:'white',marginBottom:3}}>Admin Quick Access</div><div style={{fontSize:12,color:'rgba(255,255,255,.7)'}}>Manage users and module permissions</div></div>
+        <div style={{display:'flex',gap:10}}>
+          <button onClick={()=>setPage('users')} style={{background:'rgba(255,255,255,.15)',border:'1px solid rgba(255,255,255,.3)',borderRadius:8,padding:'7px 14px',color:'white',fontSize:12,fontWeight:600,cursor:'pointer'}}>👤 Users</button>
+          <button onClick={()=>setPage('permissions')} style={{background:AM,border:'none',borderRadius:8,padding:'7px 14px',color:'white',fontSize:12,fontWeight:600,cursor:'pointer'}}>🔐 Permissions</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ─── PURCHASE ───────────────────────────────── */
+const PurchasePage=({toast})=>{
+  const [tab,setTab]=useState('orders');
+  const [orders,oLoad,reloadO]=useApi('/purchase/orders','purchase_orders');
+  const [vendors,vLoad,reloadV]=useApi('/vendors','vendors');
+  const [banks]=useApi('/bank-accounts','bank_accounts');
+  const [modal,setModal]=useState(null);
+  const [form,setForm]=useState({});
+  const [search,setSearch]=useState('');
+  const fO=orders.filter(o=>!search||o.po_number?.toLowerCase().includes(search.toLowerCase())||o.vendor_name?.toLowerCase().includes(search.toLowerCase()));
+  const fV=vendors.filter(v=>!search||v.name?.toLowerCase().includes(search.toLowerCase()));
+  const saveOrder=async()=>{
+    try{await api.post('/purchase/orders',form);toast('Purchase Order created');setModal(null);reloadO();}catch(e){toast(e.message,'error');}
+  };
+  const saveVendor=async()=>{
+    try{await api.post('/vendors',form);toast('Vendor added');setModal(null);reloadV();}catch(e){toast(e.message,'error');}
+  };
+  return(
+    <div style={{padding:22,overflowY:'auto',height:'100%',display:'flex',flexDirection:'column',gap:14}}>
+      <div style={{display:'flex',gap:0,borderBottom:'2px solid '+BD,flexShrink:0}}>
+        {[['orders','Purchase Orders'],['vendors','Vendors']].map(([id,lbl])=>(
+          <button key={id} onClick={()=>{setTab(id);setSearch('');}} style={{background:'none',border:'none',padding:'8px 18px',fontSize:13,fontWeight:tab===id?700:500,color:tab===id?N:MD,borderBottom:tab===id?'2px solid '+N:'2px solid transparent',cursor:'pointer',marginBottom:-2}}>{lbl}</button>
+        ))}
+      </div>
+      {tab==='orders'?(<>
+        <StatsBar items={[{icon:'📋',label:'Total Orders',value:orders.length,color:N,bg:'#E8EEF7'},{icon:'✅',label:'Received',value:orders.filter(o=>o.status==='Received').length,color:GR,bg:'#DCFCE7'},{icon:'⏳',label:'Pending',value:orders.filter(o=>o.status==='Pending').length,color:YL,bg:'#FEF9C3'},{icon:'💰',label:'Total Value',value:sar(orders.reduce((s,o)=>s+Number(o.total_amount||0),0)),color:ST,bg:'#E3F0F9'}]}/>
+        <div style={{display:'flex',gap:10,flexShrink:0}}>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search orders…" style={{flex:1,maxWidth:280,border:'1px solid '+BD,borderRadius:7,padding:'8px 12px',fontSize:13,outline:'none'}}/>
+          <button onClick={()=>{setForm({order_date:new Date().toISOString().slice(0,10),payment_method:'Cash',tax_rate:15,subtotal:0,tax_amount:0,total_amount:0});setModal('order');}} style={{background:N,color:'white',border:'none',borderRadius:7,padding:'8px 14px',fontSize:13,fontWeight:600,cursor:'pointer'}}>+ New PO</button>
+        </div>
+        <div style={{background:'white',border:'1px solid '+BD,borderRadius:12,overflow:'hidden',flex:1}}>
+          {oLoad?<Spinner/>:fO.length===0?<Empty icon="📦" msg="No purchase orders yet. Click + New PO to create one."/>:(
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead><tr><TH ch="PO Number"/><TH ch="Vendor"/><TH ch="Date"/><TH ch="Payment"/><TH ch="Total"/><TH ch="Status"/></tr></thead>
+              <tbody>{fO.map(o=>(
+                <tr key={o.id}><TD><span style={{fontWeight:600,color:ST,fontFamily:'monospace',fontSize:12}}>{o.po_number}</span></TD><TD>{o.vendor_name}</TD><TD>{o.order_date}</TD><TD>{payChip(o.payment_method)}</TD><TD><span style={{fontWeight:600}}>{sar(o.total_amount)}</span></TD><TD><span style={sStyle(o.status)}>{o.status}</span></TD></tr>
+              ))}</tbody>
+            </table>
+          )}
+        </div>
+      </>):(<>
+        <div style={{display:'flex',gap:10,flexShrink:0}}>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search vendors…" style={{flex:1,maxWidth:280,border:'1px solid '+BD,borderRadius:7,padding:'8px 12px',fontSize:13,outline:'none'}}/>
+          <button onClick={()=>{setForm({vendor_code:'',name:'',payment_type:'Credit',credit_term_days:45});setModal('vendor');}} style={{background:N,color:'white',border:'none',borderRadius:7,padding:'8px 14px',fontSize:13,fontWeight:600,cursor:'pointer'}}>+ Add Vendor</button>
+        </div>
+        <div style={{background:'white',border:'1px solid '+BD,borderRadius:12,overflow:'hidden',flex:1}}>
+          {vLoad?<Spinner/>:fV.length===0?<Empty icon="🏭" msg="No vendors added yet. Click + Add Vendor."/>:(
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead><tr><TH ch="Code"/><TH ch="Name"/><TH ch="Phone"/><TH ch="City"/><TH ch="Payment"/><TH ch="Credit Days"/><TH ch="Status"/></tr></thead>
+              <tbody>{fV.map(v=>(
+                <tr key={v.id}><TD><span style={{fontFamily:'monospace',fontSize:12,color:ST,fontWeight:600}}>{v.vendor_code}</span></TD><TD><span style={{fontWeight:600}}>{v.name}</span></TD><TD>{v.phone}</TD><TD>{v.city}</TD><TD>{payChip(v.payment_type)}</TD><TD>{v.credit_term_days>0?v.credit_term_days+' days':'COD'}</TD><TD><span style={sStyle(v.status)}>{v.status}</span></TD></tr>
+              ))}</tbody>
+            </table>
+          )}
+        </div>
+      </>)}
+      {modal==='order'&&<Modal title="New Purchase Order" onClose={()=>setModal(null)} onSave={saveOrder} wide>
+        <FG>
+          <FI label="Vendor *"><Sel value={form.vendor_id} onChange={v=>setForm({...form,vendor_id:v})}><option value="">Select vendor…</option>{vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</Sel></FI>
+          <FI label="Order Date *" half><Inp type="date" value={form.order_date} onChange={v=>setForm({...form,order_date:v})}/></FI>
+          <FI label="Expected Delivery" half><Inp type="date" value={form.expected_delivery} onChange={v=>setForm({...form,expected_delivery:v})}/></FI>
+          <FI label="Payment Method"><Sel value={form.payment_method} onChange={v=>setForm({...form,payment_method:v})}><option>Cash</option><option>Bank Transfer</option></Sel></FI>
+          {form.payment_method==='Bank Transfer'&&<FI label="Bank Account"><Sel value={form.bank_account_id} onChange={v=>setForm({...form,bank_account_id:v})}><option value="">Select bank…</option>{banks.map(b=><option key={b.id} value={b.id}>{b.bank_name}</option>)}</Sel></FI>}
+          <FI label="Subtotal (SAR)" half><Inp type="number" value={form.subtotal} onChange={v=>setForm({...form,subtotal:v,tax_amount:(v*(form.tax_rate||15)/100).toFixed(2),total_amount:(Number(v)*(1+(form.tax_rate||15)/100)).toFixed(2)})}/></FI>
+          <FI label="Tax Rate (%)" half><Inp type="number" value={form.tax_rate} onChange={v=>setForm({...form,tax_rate:v,tax_amount:(form.subtotal*v/100).toFixed(2),total_amount:(Number(form.subtotal)*(1+v/100)).toFixed(2)})}/></FI>
+          <FI label="Total Amount"><div style={{background:LG,borderRadius:7,padding:'9px 12px',fontSize:14,fontWeight:700,color:N}}>{sar(form.total_amount)}</div></FI>
+          <FI label="Notes"><textarea value={form.notes||''} onChange={e=>setForm({...form,notes:e.target.value})} style={{width:'100%',border:'1.5px solid '+BD,borderRadius:7,padding:'9px 12px',fontSize:13,outline:'none',minHeight:60,resize:'vertical'}}/></FI>
+        </FG>
+      </Modal>}
+      {modal==='vendor'&&<Modal title="Add Vendor" onClose={()=>setModal(null)} onSave={saveVendor} wide>
+        <FG>
+          <FI label="Vendor Code *" half><Inp value={form.vendor_code} onChange={v=>setForm({...form,vendor_code:v})} placeholder="VEND-001"/></FI>
+          <FI label="Vendor Name *" half><Inp value={form.name} onChange={v=>setForm({...form,name:v})}/></FI>
+          <FI label="Contact Person" half><Inp value={form.contact_person} onChange={v=>setForm({...form,contact_person:v})}/></FI>
+          <FI label="Phone" half><Inp value={form.phone} onChange={v=>setForm({...form,phone:v})}/></FI>
+          <FI label="Email" half><Inp type="email" value={form.email} onChange={v=>setForm({...form,email:v})}/></FI>
+          <FI label="City" half><Inp value={form.city} onChange={v=>setForm({...form,city:v})}/></FI>
+          <FI label="Payment Type"><Sel value={form.payment_type} onChange={v=>setForm({...form,payment_type:v})}><option>Cash</option><option>Credit</option><option>Bank Transfer</option></Sel></FI>
+          <FI label="Credit Term (Days)" half><Inp type="number" value={form.credit_term_days} onChange={v=>setForm({...form,credit_term_days:v})}/></FI>
+          <FI label="VAT Number" half><Inp value={form.tax_number} onChange={v=>setForm({...form,tax_number:v})}/></FI>
+        </FG>
+      </Modal>}
+    </div>
+  );
+};
+
+/* ─── EXPENSE ────────────────────────────────── */
+const ExpensePage=({toast})=>{
+  const [expenses,eLoad,reloadE]=useApi('/expenses','expenses');
+  const [cats]=useApi('/expense-categories','categories');
+  const [banks]=useApi('/bank-accounts','bank_accounts');
+  const [modal,setModal]=useState(false);
+  const [form,setForm]=useState({});
+  const [search,setSearch]=useState('');
+  const [filterM,setFilterM]=useState('');
+  const fe=expenses.filter(e=>{
+    const q=search.toLowerCase();
+    return(!q||e.description?.toLowerCase().includes(q)||e.category_name?.toLowerCase().includes(q))&&(!filterM||e.payment_method===filterM);
+  });
+  const save=async()=>{
+    if(!form.description||!form.amount||!form.expense_date){toast('Description, amount and date are required','error');return;}
+    try{await api.post('/expenses',form);toast('Expense recorded');setModal(false);reloadE();}catch(e){toast(e.message,'error');}
+  };
+  return(
+    <div style={{padding:22,overflowY:'auto',height:'100%',display:'flex',flexDirection:'column',gap:14}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+        <div><div style={{fontSize:18,fontWeight:700,color:DK}}>Expense Management</div><div style={{fontSize:13,color:MD,marginTop:2}}>{expenses.length} records</div></div>
+        <button onClick={()=>{setForm({expense_date:new Date().toISOString().slice(0,10),payment_method:'Cash',amount:'',description:''});setModal(true);}} style={{background:N,color:'white',border:'none',borderRadius:8,padding:'9px 16px',fontSize:13,fontWeight:600,cursor:'pointer'}}>+ Record Expense</button>
+      </div>
+      {!eLoad&&<StatsBar items={[{icon:'💳',label:'Total',value:sar(expenses.reduce((s,e)=>s+Number(e.amount||0),0)),color:RD,bg:'#FEE2E2'},{icon:'💵',label:'Cash',value:sar(expenses.filter(e=>e.payment_method==='Cash').reduce((s,e)=>s+Number(e.amount||0),0)),color:YL,bg:'#FEF9C3'},{icon:'🏦',label:'Bank Transfer',value:sar(expenses.filter(e=>e.payment_method==='Bank Transfer').reduce((s,e)=>s+Number(e.amount||0),0)),color:ST,bg:'#E3F0F9'},{icon:'📋',label:'Pending',value:expenses.filter(e=>['Draft','Submitted'].includes(e.status)).length,color:MD,bg:LG}]}/>}
+      <div style={{display:'flex',gap:10,flexShrink:0}}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search expenses…" style={{flex:1,maxWidth:280,border:'1px solid '+BD,borderRadius:7,padding:'8px 12px',fontSize:13,outline:'none'}}/>
+        <select value={filterM} onChange={e=>setFilterM(e.target.value)} style={{border:'1px solid '+BD,borderRadius:7,padding:'8px 12px',fontSize:13,outline:'none',color:DK,background:'white'}}>
+          <option value="">All Methods</option><option>Cash</option><option>Bank Transfer</option>
+        </select>
+      </div>
+      <div style={{background:'white',border:'1px solid '+BD,borderRadius:12,overflow:'hidden',flex:1}}>
+        {eLoad?<Spinner/>:fe.length===0?<Empty icon="💳" msg="No expenses recorded yet."/>:(
+          <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <thead><tr><TH ch="Expense No."/><TH ch="Date"/><TH ch="Description"/><TH ch="Category"/><TH ch="Amount"/><TH ch="Method"/><TH ch="Status"/></tr></thead>
+            <tbody>{fe.map(e=>(
+              <tr key={e.id}><TD><span style={{fontFamily:'monospace',fontSize:12,color:ST,fontWeight:600}}>{e.expense_number}</span></TD><TD>{e.expense_date}</TD><TD><span style={{maxWidth:200,display:'block',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{e.description}</span></TD><TD><Chip c="#374151" bg="#F3F4F6">{e.category_name||'—'}</Chip></TD><TD><span style={{fontWeight:600}}>{sar(e.amount)}</span></TD><TD>{payChip(e.payment_method)}{e.bank_name&&<span style={{fontSize:11,color:MD,marginLeft:4}}>{e.bank_name}</span>}</TD><TD><span style={sStyle(e.status)}>{e.status}</span></TD></tr>
+            ))}</tbody>
+          </table>
+        )}
+      </div>
+      {modal&&<Modal title="Record Expense" onClose={()=>setModal(false)} onSave={save} wide>
+        <FG>
+          <FI label="Date *" half><Inp type="date" value={form.expense_date} onChange={v=>setForm({...form,expense_date:v})}/></FI>
+          <FI label="Category"><Sel value={form.category_id} onChange={v=>setForm({...form,category_id:v})}><option value="">Select category…</option>{cats.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</Sel></FI>
+          <FI label="Description *"><Inp value={form.description} onChange={v=>setForm({...form,description:v})}/></FI>
+          <FI label="Amount (SAR) *" half><Inp type="number" value={form.amount} onChange={v=>setForm({...form,amount:v})}/></FI>
+          <FI label="Department" half><Inp value={form.department} onChange={v=>setForm({...form,department:v})} placeholder="e.g. Production"/></FI>
+          <FI label="Payment Method *"><Sel value={form.payment_method} onChange={v=>setForm({...form,payment_method:v,bank_account_id:''})}><option>Cash</option><option>Bank Transfer</option></Sel></FI>
+          {form.payment_method==='Bank Transfer'&&<FI label="Bank Account *"><Sel value={form.bank_account_id} onChange={v=>setForm({...form,bank_account_id:v})}><option value="">Select bank…</option>{banks.map(b=><option key={b.id} value={b.id}>{b.bank_name}</option>)}</Sel></FI>}
+          <FI label="Notes"><textarea value={form.notes||''} onChange={e=>setForm({...form,notes:e.target.value})} style={{width:'100%',border:'1.5px solid '+BD,borderRadius:7,padding:'9px 12px',fontSize:13,outline:'none',minHeight:60,resize:'vertical'}}/></FI>
+        </FG>
+      </Modal>}
+    </div>
+  );
+};
+
+/* ─── SALES ──────────────────────────────────── */
+const SalesPage=({toast})=>{
+  const [tab,setTab]=useState('orders');
+  const [orders,oLoad,reloadO]=useApi('/sales/orders','sales_orders');
+  const [customers,cLoad,reloadC]=useApi('/customers','customers');
+  const [distributors]=useApi('/distributors','distributors');
+  const [banks]=useApi('/bank-accounts','bank_accounts');
+  const [modal,setModal]=useState(null);
+  const [form,setForm]=useState({});
+  const [search,setSearch]=useState('');
+  const fO=orders.filter(o=>!search||o.so_number?.toLowerCase().includes(search.toLowerCase())||o.customer_name?.toLowerCase().includes(search.toLowerCase())||o.distributor_name?.toLowerCase().includes(search.toLowerCase()));
+  const fC=customers.filter(c=>!search||c.name?.toLowerCase().includes(search.toLowerCase()));
+  const saveOrder=async()=>{
+    try{await api.post('/sales/orders',form);toast((form.order_type||'Order')+' created');setModal(null);reloadO();}catch(e){toast(e.message,'error');}
+  };
+  const saveCust=async()=>{
+    if(!form.name||!form.customer_code){toast('Code and name required','error');return;}
+    try{await api.post('/customers',form);toast('Customer added');setModal(null);reloadC();}catch(e){toast(e.message,'error');}
+  };
+  return(
+    <div style={{padding:22,overflowY:'auto',height:'100%',display:'flex',flexDirection:'column',gap:14}}>
+      <div style={{display:'flex',gap:0,borderBottom:'2px solid '+BD,flexShrink:0}}>
+        {[['orders','Sales Orders'],['customers','Customers']].map(([id,lbl])=>(
+          <button key={id} onClick={()=>{setTab(id);setSearch('');}} style={{background:'none',border:'none',padding:'8px 18px',fontSize:13,fontWeight:tab===id?700:500,color:tab===id?N:MD,borderBottom:tab===id?'2px solid '+N:'2px solid transparent',cursor:'pointer',marginBottom:-2}}>{lbl}</button>
+        ))}
+      </div>
+      {tab==='orders'?(<>
+        <div style={{background:'#FFF7ED',border:'1px solid #FED7AA',borderRadius:8,padding:'9px 13px',fontSize:12,color:'#92400E',flexShrink:0}}><b>📋 Proforma Invoices</b> — no VAT, not posted to accounts. Auto-converts to a Tax Invoice when payment is confirmed.</div>
+        {!oLoad&&<StatsBar items={[{icon:'📊',label:'Sales Orders',value:orders.filter(o=>o.order_type==='Sales Order').length,color:N,bg:'#E8EEF7'},{icon:'📋',label:'Proforma',value:orders.filter(o=>o.order_type==='Proforma').length,color:YL,bg:'#FEF9C3'},{icon:'💰',label:'Total Revenue',value:sar(orders.reduce((s,o)=>s+Number(o.total_amount||0),0)),color:GR,bg:'#DCFCE7'},{icon:'⏳',label:'Draft',value:orders.filter(o=>o.status==='Draft').length,color:MD,bg:LG}]}/>}
+        <div style={{display:'flex',gap:10,flexShrink:0}}>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search orders…" style={{flex:1,maxWidth:280,border:'1px solid '+BD,borderRadius:7,padding:'8px 12px',fontSize:13,outline:'none'}}/>
+          <button onClick={()=>{setForm({order_type:'Proforma',order_date:new Date().toISOString().slice(0,10),payment_method:'Cash',tax_rate:15});setModal('proforma');}} style={{background:'#FEF3C7',border:'1px solid #FDE68A',borderRadius:7,padding:'8px 14px',fontSize:13,fontWeight:600,cursor:'pointer',color:'#92400E'}}>+ Proforma</button>
+          <button onClick={()=>{setForm({order_type:'Sales Order',order_date:new Date().toISOString().slice(0,10),payment_method:'Cash',tax_rate:15});setModal('order');}} style={{background:N,color:'white',border:'none',borderRadius:7,padding:'8px 14px',fontSize:13,fontWeight:600,cursor:'pointer'}}>+ Sales Order</button>
+        </div>
+        <div style={{background:'white',border:'1px solid '+BD,borderRadius:12,overflow:'hidden',flex:1}}>
+          {oLoad?<Spinner/>:fO.length===0?<Empty icon="📊" msg="No sales orders yet."/>:(
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead><tr><TH ch="Number"/><TH ch="Type"/><TH ch="Customer / Distributor"/><TH ch="Date"/><TH ch="Payment"/><TH ch="Total"/><TH ch="Status"/></tr></thead>
+              <tbody>{fO.map(o=>(
+                <tr key={o.id}><TD><span style={{fontFamily:'monospace',fontSize:12,color:ST,fontWeight:600}}>{o.so_number}</span></TD><TD><span style={{background:o.order_type==='Proforma'?'#FEF9C3':'#DBEAFE',color:o.order_type==='Proforma'?'#92400E':'#1E40AF',fontSize:10,fontWeight:600,padding:'1px 7px',borderRadius:20}}>{o.order_type}</span></TD><TD>{o.customer_name||o.distributor_name||'—'}</TD><TD>{o.order_date}</TD><TD>{payChip(o.payment_method)}</TD><TD><span style={{fontWeight:600}}>{sar(o.total_amount)}</span></TD><TD><span style={sStyle(o.status)}>{o.status}</span></TD></tr>
+              ))}</tbody>
+            </table>
+          )}
+        </div>
+      </>):(<>
+        <div style={{display:'flex',gap:10,flexShrink:0}}>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search customers…" style={{flex:1,maxWidth:280,border:'1px solid '+BD,borderRadius:7,padding:'8px 12px',fontSize:13,outline:'none'}}/>
+          <button onClick={()=>{setForm({customer_code:'',name:'',payment_type:'Credit',credit_limit:0,credit_term_days:30});setModal('customer');}} style={{background:N,color:'white',border:'none',borderRadius:7,padding:'8px 14px',fontSize:13,fontWeight:600,cursor:'pointer'}}>+ Add Customer</button>
+        </div>
+        <div style={{background:'white',border:'1px solid '+BD,borderRadius:12,overflow:'hidden',flex:1}}>
+          {cLoad?<Spinner/>:fC.length===0?<Empty icon="🤝" msg="No customers yet."/>:(
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead><tr><TH ch="Code"/><TH ch="Name"/><TH ch="Contact"/><TH ch="Phone"/><TH ch="Payment"/><TH ch="Credit Limit"/><TH ch="Status"/></tr></thead>
+              <tbody>{fC.map(c=>(
+                <tr key={c.id}><TD><span style={{fontFamily:'monospace',fontSize:12,color:ST,fontWeight:600}}>{c.customer_code}</span></TD><TD><span style={{fontWeight:600}}>{c.name}</span></TD><TD>{c.contact_person}</TD><TD>{c.phone}</TD><TD>{payChip(c.payment_type)}</TD><TD>{c.credit_limit>0?sar(c.credit_limit):'—'}</TD><TD><span style={sStyle(c.status)}>{c.status}</span></TD></tr>
+              ))}</tbody>
+            </table>
+          )}
+        </div>
+      </>)}
+      {(modal==='order'||modal==='proforma')&&<Modal title={modal==='proforma'?'New Proforma Invoice':'New Sales Order'} onClose={()=>setModal(null)} onSave={saveOrder} wide>
+        <FG>
+          <FI label="Customer"><Sel value={form.customer_id} onChange={v=>setForm({...form,customer_id:v,distributor_id:''})}><option value="">Select customer…</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</Sel></FI>
+          <FI label="Distributor"><Sel value={form.distributor_id} onChange={v=>setForm({...form,distributor_id:v,customer_id:''})}><option value="">Select distributor…</option>{distributors.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</Sel></FI>
+          <FI label="Order Date *" half><Inp type="date" value={form.order_date} onChange={v=>setForm({...form,order_date:v})}/></FI>
+          <FI label="Delivery Date" half><Inp type="date" value={form.delivery_date} onChange={v=>setForm({...form,delivery_date:v})}/></FI>
+          <FI label="Payment Method"><Sel value={form.payment_method} onChange={v=>setForm({...form,payment_method:v})}><option>Cash</option><option>Bank Transfer</option><option>Credit</option></Sel></FI>
+          {form.payment_method==='Bank Transfer'&&<FI label="Bank Account"><Sel value={form.bank_account_id} onChange={v=>setForm({...form,bank_account_id:v})}><option value="">Select bank…</option>{banks.map(b=><option key={b.id} value={b.id}>{b.bank_name}</option>)}</Sel></FI>}
+          <FI label="Total Amount (SAR)" half><Inp type="number" value={form.total_amount} onChange={v=>setForm({...form,total_amount:v})}/></FI>
+          <FI label="Tax Rate (%)" half><Inp type="number" value={form.tax_rate} onChange={v=>setForm({...form,tax_rate:v})}/></FI>
+          <FI label="Notes"><textarea value={form.notes||''} onChange={e=>setForm({...form,notes:e.target.value})} style={{width:'100%',border:'1.5px solid '+BD,borderRadius:7,padding:'9px 12px',fontSize:13,outline:'none',minHeight:60,resize:'vertical'}}/></FI>
+        </FG>
+      </Modal>}
+      {modal==='customer'&&<Modal title="Add Customer" onClose={()=>setModal(null)} onSave={saveCust} wide>
+        <FG>
+          <FI label="Customer Code *" half><Inp value={form.customer_code} onChange={v=>setForm({...form,customer_code:v})} placeholder="CUST-001"/></FI>
+          <FI label="Customer Name *" half><Inp value={form.name} onChange={v=>setForm({...form,name:v})}/></FI>
+          <FI label="Contact Person" half><Inp value={form.contact_person} onChange={v=>setForm({...form,contact_person:v})}/></FI>
+          <FI label="Phone" half><Inp value={form.phone} onChange={v=>setForm({...form,phone:v})}/></FI>
+          <FI label="City" half><Inp value={form.city} onChange={v=>setForm({...form,city:v})}/></FI>
+          <FI label="Email" half><Inp type="email" value={form.email} onChange={v=>setForm({...form,email:v})}/></FI>
+          <FI label="Payment Type"><Sel value={form.payment_type} onChange={v=>setForm({...form,payment_type:v})}><option>Credit</option><option>Cash</option></Sel></FI>
+          {form.payment_type==='Credit'&&<><FI label="Credit Limit (SAR)" half><Inp type="number" value={form.credit_limit} onChange={v=>setForm({...form,credit_limit:v})}/></FI><FI label="Credit Term (Days)" half><Inp type="number" value={form.credit_term_days} onChange={v=>setForm({...form,credit_term_days:v})}/></FI></>}
+        </FG>
+      </Modal>}
+    </div>
+  );
+};
+
+/* ─── HR ─────────────────────────────────────── */
+const HRPage=({toast})=>{
+  const [tab,setTab]=useState('employees');
+  const [employees,eLoad,reloadE]=useApi('/employees','employees');
+  const [modal,setModal]=useState(false);
+  const [form,setForm]=useState({});
+  const [search,setSearch]=useState('');
+  const fe=employees.filter(e=>!search||e.name?.toLowerCase().includes(search.toLowerCase())||e.employee_code?.toLowerCase().includes(search.toLowerCase()));
+  const save=async()=>{
+    if(!form.name||!form.employee_code){toast('Code and name required','error');return;}
+    try{await api.post('/employees',form);toast('Employee added');setModal(false);reloadE();}catch(e){toast(e.message,'error');}
+  };
+  return(
+    <div style={{padding:22,overflowY:'auto',height:'100%',display:'flex',flexDirection:'column',gap:14}}>
+      <div style={{display:'flex',gap:0,borderBottom:'2px solid '+BD,flexShrink:0}}>
+        {[['employees','Employees'],['attendance','Attendance Import'],['payroll','Payroll']].map(([id,lbl])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{background:'none',border:'none',padding:'8px 18px',fontSize:13,fontWeight:tab===id?700:500,color:tab===id?N:MD,borderBottom:tab===id?'2px solid '+N:'2px solid transparent',cursor:'pointer',marginBottom:-2}}>{lbl}</button>
+        ))}
+      </div>
+      {tab==='employees'&&(<>
+        {!eLoad&&<StatsBar items={[{icon:'👥',label:'Total',value:employees.length,color:N,bg:'#E8EEF7'},{icon:'✅',label:'Active',value:employees.filter(e=>e.status==='Active').length,color:GR,bg:'#DCFCE7'},{icon:'💰',label:'Total Payroll',value:sar(employees.reduce((s,e)=>s+Number(e.basic_salary||0)+Number(e.housing_allowance||0)+Number(e.transport_allowance||0),0)),color:YL,bg:'#FEF9C3'},{icon:'🏢',label:'Departments',value:[...new Set(employees.map(e=>e.department).filter(Boolean))].length,color:ST,bg:'#E3F0F9'}]}/>}
+        <div style={{display:'flex',gap:10,flexShrink:0}}>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search employees…" style={{flex:1,maxWidth:280,border:'1px solid '+BD,borderRadius:7,padding:'8px 12px',fontSize:13,outline:'none'}}/>
+          <button onClick={()=>{setForm({employment_type:'Full-Time',gender:'Male',join_date:new Date().toISOString().slice(0,10),basic_salary:0,housing_allowance:0,transport_allowance:0,other_allowance:0});setModal(true);}} style={{background:N,color:'white',border:'none',borderRadius:7,padding:'8px 14px',fontSize:13,fontWeight:600,cursor:'pointer'}}>+ Add Employee</button>
+        </div>
+        <div style={{background:'white',border:'1px solid '+BD,borderRadius:12,overflow:'hidden',flex:1}}>
+          {eLoad?<Spinner/>:fe.length===0?<Empty icon="👥" msg="No employees yet."/>:(
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead><tr><TH ch="Employee"/><TH ch="Arabic Name"/><TH ch="Department"/><TH ch="Title"/><TH ch="Join Date"/><TH ch="Basic Salary"/><TH ch="Status"/></tr></thead>
+              <tbody>{fe.map(e=>(
+                <tr key={e.id}>
+                  <TD><div style={{display:'flex',alignItems:'center',gap:9}}><Av ini={(e.name||'').split(' ').map(w=>w[0]).join('').slice(0,2)} size={30}/><div><div style={{fontSize:13,fontWeight:600}}>{e.name}</div><div style={{fontSize:11,color:MD,fontFamily:'monospace'}}>{e.employee_code}</div></div></div></TD>
+                  <TD><span style={{fontFamily:'Cairo,sans-serif'}}>{e.name_ar||'—'}</span></TD>
+                  <TD><Chip c="#374151" bg="#F3F4F6">{e.department||'—'}</Chip></TD>
+                  <TD>{e.job_title}</TD><TD>{e.join_date}</TD>
+                  <TD><span style={{fontWeight:600}}>{sar(e.basic_salary)}</span></TD>
+                  <TD><span style={sStyle(e.status)}>{e.status}</span></TD>
+                </tr>
+              ))}</tbody>
+            </table>
+          )}
+        </div>
+      </>)}
+      {tab==='attendance'&&(
+        <div style={{display:'flex',flexDirection:'column',gap:14}}>
+          <div style={{background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:8,padding:'10px 14px',fontSize:12,color:'#1E40AF'}}><b>📥 Biometric Attendance Import</b> — Export the monthly Excel from your biometric machine, map it to the template, then import.</div>
+          <div style={{background:'white',border:'1px solid '+BD,borderRadius:12,padding:24}}>
+            <div style={{fontSize:14,fontWeight:600,color:DK,marginBottom:16}}>Import Monthly Attendance</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
+              <div><label style={{fontSize:12,fontWeight:600,color:MD,display:'block',marginBottom:6}}>Month</label><select style={{width:'100%',border:'1px solid '+BD,borderRadius:7,padding:'9px 12px',fontSize:13,outline:'none'}}><option>Select month…</option>{['January 2026','February 2026','March 2026','April 2026'].map(m=><option key={m}>{m}</option>)}</select></div>
+              <div><label style={{fontSize:12,fontWeight:600,color:MD,display:'block',marginBottom:6}}>Excel File (from biometric machine)</label><div style={{border:'2px dashed '+BD,borderRadius:7,padding:16,textAlign:'center',background:LG,cursor:'pointer'}}><div style={{fontSize:22,marginBottom:4}}>📂</div><div style={{fontSize:12,color:MD}}>Click to upload .xlsx file</div></div></div>
+            </div>
+            <button onClick={()=>toast('Upload a file first then click Run Import')} style={{background:ST,color:'white',border:'none',borderRadius:7,padding:'10px 20px',fontSize:13,fontWeight:600,cursor:'pointer'}}>Run Import</button>
+          </div>
+        </div>
+      )}
+      {tab==='payroll'&&(
+        <div style={{background:'white',border:'1px solid '+BD,borderRadius:12,padding:32,textAlign:'center'}}>
+          <div style={{fontSize:40,marginBottom:12}}>💰</div>
+          <div style={{fontSize:15,fontWeight:600,color:DK,marginBottom:8}}>Payroll — {new Date().toLocaleString('default',{month:'long',year:'numeric'})}</div>
+          <div style={{fontSize:13,color:MD,marginBottom:20}}>Run payroll after attendance is imported and approved</div>
+          <button onClick={()=>toast('Payroll calculation — '+employees.length+' employees')} style={{background:GR,color:'white',border:'none',borderRadius:8,padding:'11px 24px',fontSize:13,fontWeight:600,cursor:'pointer'}}>Calculate Payroll</button>
+        </div>
+      )}
+      {modal&&<Modal title="Add Employee" onClose={()=>setModal(false)} onSave={save} wide>
+        <FG>
+          <FI label="Employee Code *" half><Inp value={form.employee_code} onChange={v=>setForm({...form,employee_code:v})} placeholder="EMP-001"/></FI>
+          <FI label="Full Name (English) *" half><Inp value={form.name} onChange={v=>setForm({...form,name:v})}/></FI>
+          <FI label="Full Name (Arabic)"><Inp value={form.name_ar} onChange={v=>setForm({...form,name_ar:v})} placeholder="الاسم بالعربي"/></FI>
+          <FI label="National ID / Iqama" half><Inp value={form.national_id} onChange={v=>setForm({...form,national_id:v})}/></FI>
+          <FI label="Nationality" half><Inp value={form.nationality} onChange={v=>setForm({...form,nationality:v})}/></FI>
+          <FI label="Gender" half><Sel value={form.gender} onChange={v=>setForm({...form,gender:v})}><option>Male</option><option>Female</option></Sel></FI>
+          <FI label="Phone" half><Inp value={form.phone} onChange={v=>setForm({...form,phone:v})}/></FI>
+          <FI label="Department" half><Sel value={form.department} onChange={v=>setForm({...form,department:v})}><option value="">Select…</option>{['Production','Sales','HR','Accounts','Administration','Delivery','Warehouse','Management'].map(d=><option key={d}>{d}</option>)}</Sel></FI>
+          <FI label="Job Title" half><Inp value={form.job_title} onChange={v=>setForm({...form,job_title:v})}/></FI>
+          <FI label="Employment Type" half><Sel value={form.employment_type} onChange={v=>setForm({...form,employment_type:v})}><option>Full-Time</option><option>Part-Time</option><option>Contract</option><option>Seasonal</option></Sel></FI>
+          <FI label="Join Date *" half><Inp type="date" value={form.join_date} onChange={v=>setForm({...form,join_date:v})}/></FI>
+          <FI label="Contract Expiry" half><Inp type="date" value={form.contract_expiry} onChange={v=>setForm({...form,contract_expiry:v})}/></FI>
+          <FI label="Basic Salary (SAR)" half><Inp type="number" value={form.basic_salary} onChange={v=>setForm({...form,basic_salary:v})}/></FI>
+          <FI label="Housing Allowance" half><Inp type="number" value={form.housing_allowance} onChange={v=>setForm({...form,housing_allowance:v})}/></FI>
+          <FI label="Transport Allowance" half><Inp type="number" value={form.transport_allowance} onChange={v=>setForm({...form,transport_allowance:v})}/></FI>
+          <FI label="Other Allowance" half><Inp type="number" value={form.other_allowance} onChange={v=>setForm({...form,other_allowance:v})}/></FI>
+          <FI label="Bank Name" half><Inp value={form.bank_name} onChange={v=>setForm({...form,bank_name:v})}/></FI>
+          <FI label="IBAN" half><Inp value={form.iban} onChange={v=>setForm({...form,iban:v})} placeholder="SA…"/></FI>
+        </FG>
+      </Modal>}
+    </div>
+  );
+};
+
+/* ─── DELIVERY ───────────────────────────────── */
+const DeliveryPage=({toast})=>{
+  const [deliveries,dLoad,reloadD]=useApi('/delivery/orders','delivery_orders');
+  const [distributors]=useApi('/distributors','distributors');
+  const [employees]=useApi('/employees','employees');
+  const [modal,setModal]=useState(false);
+  const [form,setForm]=useState({});
+  const [search,setSearch]=useState('');
+  const fd=deliveries.filter(d=>!search||d.delivery_number?.toLowerCase().includes(search.toLowerCase())||d.distributor_name?.toLowerCase().includes(search.toLowerCase()));
+  const save=async()=>{
+    if(!form.delivery_date){toast('Delivery date required','error');return;}
+    const tc=Number(form.fuel_cost||0)+Number(form.driver_allowance||0)+Number(form.tolls||0)+Number(form.misc_cost||0);
+    try{await api.post('/delivery/orders',{...form,total_trip_cost:tc});toast('Delivery order created');setModal(false);reloadD();}catch(e){toast(e.message,'error');}
+  };
+  return(
+    <div style={{padding:22,overflowY:'auto',height:'100%',display:'flex',flexDirection:'column',gap:14}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+        <div><div style={{fontSize:18,fontWeight:700,color:DK}}>Delivery Management</div><div style={{fontSize:13,color:MD,marginTop:2}}>{deliveries.length} records</div></div>
+        <button onClick={()=>{setForm({delivery_date:new Date().toISOString().slice(0,10),delivery_type:'Company Vehicle',status:'Pending',fuel_cost:0,driver_allowance:0,tolls:0,misc_cost:0});setModal(true);}} style={{background:N,color:'white',border:'none',borderRadius:8,padding:'9px 16px',fontSize:13,fontWeight:600,cursor:'pointer'}}>+ New Delivery</button>
+      </div>
+      <div style={{background:'#F0FDF4',border:'1px solid #BBF7D0',borderRadius:8,padding:'9px 13px',fontSize:12,color:'#14532D',flexShrink:0}}><b>🚛 Company Vehicle</b> deliveries record full trip costs automatically. <b>3PL</b> deliveries — no company expense recorded.</div>
+      {!dLoad&&<StatsBar items={[{icon:'🚛',label:'Total',value:deliveries.length,color:N,bg:'#E8EEF7'},{icon:'✅',label:'Delivered',value:deliveries.filter(d=>d.status==='Delivered').length,color:GR,bg:'#DCFCE7'},{icon:'📦',label:'In Transit',value:deliveries.filter(d=>d.status==='Dispatched').length,color:ST,bg:'#E3F0F9'},{icon:'💸',label:'Total Trip Costs',value:sar(deliveries.reduce((s,d)=>s+Number(d.total_trip_cost||0),0)),color:YL,bg:'#FEF9C3'}]}/>}
+      <div style={{display:'flex',gap:10,flexShrink:0}}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search deliveries…" style={{flex:1,maxWidth:280,border:'1px solid '+BD,borderRadius:7,padding:'8px 12px',fontSize:13,outline:'none'}}/>
+      </div>
+      <div style={{background:'white',border:'1px solid '+BD,borderRadius:12,overflow:'hidden',flex:1}}>
+        {dLoad?<Spinner/>:fd.length===0?<Empty icon="🚛" msg="No delivery orders yet."/>:(
+          <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <thead><tr><TH ch="Del. No."/><TH ch="Distributor"/><TH ch="Date"/><TH ch="Type"/><TH ch="Vehicle / 3PL"/><TH ch="Driver"/><TH ch="Trip Cost"/><TH ch="Status"/></tr></thead>
+            <tbody>{fd.map(d=>(
+              <tr key={d.id}><TD><span style={{fontFamily:'monospace',fontSize:12,color:ST,fontWeight:600}}>{d.delivery_number}</span></TD><TD>{d.distributor_name||'—'}</TD><TD>{d.delivery_date}</TD><TD><span style={{background:d.delivery_type==='3PL'?'#EDE9FE':'#DBEAFE',color:d.delivery_type==='3PL'?'#6D28D9':'#1E40AF',fontSize:10,fontWeight:600,padding:'1px 7px',borderRadius:20}}>{d.delivery_type}</span></TD><TD>{d.vehicle_plate||d.tpl_company||'—'}</TD><TD>{d.driver_name||d.tpl_driver_name||'—'}</TD><TD>{Number(d.total_trip_cost)>0?<span style={{fontWeight:600,color:RD}}>{sar(d.total_trip_cost)}</span>:<span style={{color:MD,fontSize:12}}>N/A</span>}</TD><TD><span style={sStyle(d.status)}>{d.status}</span></TD></tr>
+            ))}</tbody>
+          </table>
+        )}
+      </div>
+      {modal&&<Modal title="New Delivery Order" onClose={()=>setModal(false)} onSave={save} wide>
+        <FG>
+          <FI label="Distributor"><Sel value={form.distributor_id} onChange={v=>setForm({...form,distributor_id:v})}><option value="">Select distributor…</option>{distributors.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</Sel></FI>
+          <FI label="Delivery Date *" half><Inp type="date" value={form.delivery_date} onChange={v=>setForm({...form,delivery_date:v})}/></FI>
+          <FI label="Delivery Type"><Sel value={form.delivery_type} onChange={v=>setForm({...form,delivery_type:v})}><option>Company Vehicle</option><option>3PL</option></Sel></FI>
+          {form.delivery_type==='Company Vehicle'?(<>
+            <FI label="Vehicle Plate Number" half><Inp value={form.vehicle_plate} onChange={v=>setForm({...form,vehicle_plate:v})} placeholder="e.g. SAR-1234"/></FI>
+            <FI label="Driver"><Sel value={form.driver_id} onChange={v=>setForm({...form,driver_id:v})}><option value="">Select driver…</option>{employees.filter(e=>e.status==='Active').map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</Sel></FI>
+            <FI label="Trip Costs (SAR)">
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:10}}>
+                {[['fuel_cost','Fuel'],['driver_allowance','Driver'],['tolls','Tolls'],['misc_cost','Misc']].map(([k,lbl])=>(
+                  <div key={k}><label style={{fontSize:11,fontWeight:600,color:MD,display:'block',marginBottom:4}}>{lbl}</label><input type="number" value={form[k]||0} onChange={e=>setForm({...form,[k]:e.target.value})} style={{width:'100%',border:'1px solid '+BD,borderRadius:6,padding:'7px 9px',fontSize:13,outline:'none'}}/></div>
+                ))}
+              </div>
+              <div style={{marginTop:8,fontSize:13,fontWeight:700,color:N}}>Total: {sar(Number(form.fuel_cost||0)+Number(form.driver_allowance||0)+Number(form.tolls||0)+Number(form.misc_cost||0))}</div>
+            </FI>
+          </>):(<>
+            <FI label="3PL Company" half><Inp value={form.tpl_company} onChange={v=>setForm({...form,tpl_company:v})}/></FI>
+            <FI label="3PL Driver" half><Inp value={form.tpl_driver_name} onChange={v=>setForm({...form,tpl_driver_name:v})}/></FI>
+            <FI label="Waybill No." half><Inp value={form.waybill_number} onChange={v=>setForm({...form,waybill_number:v})}/></FI>
+          </>)}
+          <FI label="Notes"><textarea value={form.notes||''} onChange={e=>setForm({...form,notes:e.target.value})} style={{width:'100%',border:'1.5px solid '+BD,borderRadius:7,padding:'9px 12px',fontSize:13,outline:'none',minHeight:50,resize:'vertical'}}/></FI>
+        </FG>
+      </Modal>}
+    </div>
+  );
+};
+
+/* ─── DISTRIBUTOR ────────────────────────────── */
+const DistributorPage=({toast})=>{
+  const [distributors,dLoad,reloadD]=useApi('/distributors','distributors');
+  const [modal,setModal]=useState(false);
+  const [form,setForm]=useState({});
+  const [search,setSearch]=useState('');
+  const fd=distributors.filter(d=>!search||d.name?.toLowerCase().includes(search.toLowerCase())||d.region?.toLowerCase().includes(search.toLowerCase()));
+  const save=async()=>{
+    if(!form.name||!form.distributor_code){toast('Code and name required','error');return;}
+    try{await api.post('/distributors',form);toast('Distributor added');setModal(false);reloadD();}catch(e){toast(e.message,'error');}
+  };
+  return(
+    <div style={{padding:22,overflowY:'auto',height:'100%',display:'flex',flexDirection:'column',gap:14}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+        <div><div style={{fontSize:18,fontWeight:700,color:DK}}>Distributor Management</div><div style={{fontSize:13,color:MD,marginTop:2}}>{distributors.length} distributors</div></div>
+        <button onClick={()=>{setForm({distributor_code:'',name:'',payment_type:'Credit',credit_limit:0,credit_term_days:30,delivery_type:'Both',status:'Active'});setModal(true);}} style={{background:N,color:'white',border:'none',borderRadius:8,padding:'9px 16px',fontSize:13,fontWeight:600,cursor:'pointer'}}>+ Add Distributor</button>
+      </div>
+      {!dLoad&&<StatsBar items={[{icon:'🏪',label:'Total',value:distributors.length,color:N,bg:'#E8EEF7'},{icon:'✅',label:'Active',value:distributors.filter(d=>d.status==='Active').length,color:GR,bg:'#DCFCE7'},{icon:'🚛',label:'Co. Vehicle',value:distributors.filter(d=>d.delivery_type!=='3PL').length,color:ST,bg:'#E3F0F9'},{icon:'📦',label:'3PL',value:distributors.filter(d=>d.delivery_type==='3PL').length,color:YL,bg:'#FEF9C3'}]}/>}
+      <div style={{display:'flex',gap:10,flexShrink:0}}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search distributors…" style={{flex:1,maxWidth:280,border:'1px solid '+BD,borderRadius:7,padding:'8px 12px',fontSize:13,outline:'none'}}/>
+      </div>
+      <div style={{background:'white',border:'1px solid '+BD,borderRadius:12,overflow:'hidden',flex:1}}>
+        {dLoad?<Spinner/>:fd.length===0?<Empty icon="🏪" msg="No distributors yet."/>:(
+          <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <thead><tr><TH ch="Code"/><TH ch="Name"/><TH ch="Region"/><TH ch="Contact"/><TH ch="Phone"/><TH ch="Payment"/><TH ch="Delivery"/><TH ch="Credit Limit"/><TH ch="Status"/></tr></thead>
+            <tbody>{fd.map(d=>(
+              <tr key={d.id}><TD><span style={{fontFamily:'monospace',fontSize:12,color:ST,fontWeight:600}}>{d.distributor_code}</span></TD><TD><span style={{fontWeight:600}}>{d.name}</span></TD><TD>{d.region}</TD><TD>{d.contact_person}</TD><TD>{d.phone}</TD><TD>{payChip(d.payment_type)}</TD><TD><span style={{background:'#EDE9FE',color:'#6D28D9',fontSize:10,fontWeight:600,padding:'1px 7px',borderRadius:20}}>{d.delivery_type}</span></TD><TD>{d.credit_limit>0?sar(d.credit_limit):'—'}</TD><TD><span style={sStyle(d.status)}>{d.status}</span></TD></tr>
+            ))}</tbody>
+          </table>
+        )}
+      </div>
+      {modal&&<Modal title="Add Distributor" onClose={()=>setModal(false)} onSave={save} wide>
+        <FG>
+          <FI label="Code *" half><Inp value={form.distributor_code} onChange={v=>setForm({...form,distributor_code:v})} placeholder="DIST-001"/></FI>
+          <FI label="Name *" half><Inp value={form.name} onChange={v=>setForm({...form,name:v})}/></FI>
+          <FI label="Contact Person *" half><Inp value={form.contact_person} onChange={v=>setForm({...form,contact_person:v})}/></FI>
+          <FI label="Phone *" half><Inp value={form.phone} onChange={v=>setForm({...form,phone:v})}/></FI>
+          <FI label="City" half><Inp value={form.city} onChange={v=>setForm({...form,city:v})}/></FI>
+          <FI label="Region *"><Inp value={form.region} onChange={v=>setForm({...form,region:v})} placeholder="e.g. Madinah Region"/></FI>
+          <FI label="Payment Type"><Sel value={form.payment_type} onChange={v=>setForm({...form,payment_type:v})}><option>Credit</option><option>Cash</option><option>Both</option></Sel></FI>
+          {form.payment_type!=='Cash'&&<><FI label="Credit Limit (SAR)" half><Inp type="number" value={form.credit_limit} onChange={v=>setForm({...form,credit_limit:v})}/></FI><FI label="Credit Term (Days)" half><Inp type="number" value={form.credit_term_days} onChange={v=>setForm({...form,credit_term_days:v})}/></FI></>}
+          <FI label="Delivery Type"><Sel value={form.delivery_type} onChange={v=>setForm({...form,delivery_type:v})}><option>Both</option><option>Company Vehicle</option><option>3PL</option></Sel></FI>
+        </FG>
+      </Modal>}
+    </div>
+  );
+};
+
+/* ─── PRODUCTION ─────────────────────────────── */
+const ProductionPage=({toast})=>{
+  const [tab,setTab]=useState('entries');
+  const [entries,eLoad,reloadE]=useApi('/production/entries','entries');
+  const [subSkus]=useApi('/sub-skus','sub_skus');
+  const [rawMats]=useApi('/raw-materials','raw_materials');
+  const [parentSkus]=useApi('/parent-skus','parent_skus');
+  const [modal,setModal]=useState(false);
+  const [form,setForm]=useState({items:[{sub_sku_id:'',quantity_produced:'',waste_quantity:0}]});
+  const save=async()=>{
+    if(!form.machine_id||!form.production_date){toast('Machine/Parent SKU and date are required','error');return;}
+    try{await api.post('/production/entries',form);toast('Entry submitted — stock updated automatically');setModal(false);reloadE();}catch(e){toast(e.message,'error');}
+  };
+  const addItem=()=>setForm({...form,items:[...form.items,{sub_sku_id:'',quantity_produced:'',waste_quantity:0}]});
+  const rmItem=i=>setForm({...form,items:form.items.filter((_,j)=>j!==i)});
+  const setItem=(i,k,v)=>{const it=[...form.items];it[i]={...it[i],[k]:v};setForm({...form,items:it});};
+  return(
+    <div style={{padding:22,overflowY:'auto',height:'100%',display:'flex',flexDirection:'column',gap:14}}>
+      <div style={{display:'flex',gap:0,borderBottom:'2px solid '+BD,flexShrink:0}}>
+        {[['entries','Daily Production Entries'],['stock','Stock Dashboard']].map(([id,lbl])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{background:'none',border:'none',padding:'8px 18px',fontSize:13,fontWeight:tab===id?700:500,color:tab===id?N:MD,borderBottom:tab===id?'2px solid '+N:'2px solid transparent',cursor:'pointer',marginBottom:-2}}>{lbl}</button>
+        ))}
+      </div>
+      {tab==='entries'&&(<>
+        <div style={{background:'#FFF7ED',border:'1px solid #FED7AA',borderRadius:8,padding:'9px 13px',fontSize:12,color:'#92400E',flexShrink:0}}><b>🏭 Production Hierarchy:</b> Machine → Parent SKU → Sub-SKUs. Daily entry auto-deducts raw materials (via BOM) and adds finished goods to stock.</div>
+        {!eLoad&&<StatsBar items={[{icon:'📝',label:'Total Entries',value:entries.length,color:N,bg:'#E8EEF7'},{icon:'🔒',label:'Locked',value:entries.filter(e=>e.status==='Locked').length,color:GR,bg:'#DCFCE7'},{icon:'📤',label:'Submitted',value:entries.filter(e=>e.status==='Submitted').length,color:ST,bg:'#E3F0F9'},{icon:'📋',label:'Draft',value:entries.filter(e=>e.status==='Draft').length,color:YL,bg:'#FEF9C3'}]}/>}
+        <div style={{display:'flex',justifyContent:'flex-end',flexShrink:0}}>
+          <button onClick={()=>{setForm({production_date:new Date().toISOString().slice(0,10),machine_id:'',shift:'Morning',downtime_minutes:0,items:[{sub_sku_id:'',quantity_produced:'',waste_quantity:0}]});setModal(true);}} style={{background:N,color:'white',border:'none',borderRadius:7,padding:'8px 14px',fontSize:13,fontWeight:600,cursor:'pointer'}}>+ New Daily Entry</button>
+        </div>
+        <div style={{background:'white',border:'1px solid '+BD,borderRadius:12,overflow:'hidden',flex:1}}>
+          {eLoad?<Spinner/>:entries.length===0?<Empty icon="🏭" msg="No production entries yet."/>:(
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead><tr><TH ch="Entry No."/><TH ch="Machine"/><TH ch="Parent SKU"/><TH ch="Date"/><TH ch="Downtime"/><TH ch="Status"/></tr></thead>
+              <tbody>{entries.map(e=>(
+                <tr key={e.id}><TD><span style={{fontFamily:'monospace',fontSize:12,color:ST,fontWeight:600}}>{e.entry_number}</span></TD><TD><span style={{fontWeight:600}}>{e.machine_code} — {e.machine_name}</span></TD><TD>{e.parent_sku_name}</TD><TD>{e.production_date}</TD><TD>{Number(e.downtime_minutes)>0?<span style={{color:RD,fontWeight:600}}>{e.downtime_minutes} min</span>:<span style={{color:MD}}>None</span>}</TD><TD><span style={sStyle(e.status)}>{e.status}</span></TD></tr>
+              ))}</tbody>
+            </table>
+          )}
+        </div>
+      </>)}
+      {tab==='stock'&&(<>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,flex:1}}>
+          <div style={{background:'white',border:'1px solid '+BD,borderRadius:12,overflow:'hidden'}}>
+            <div style={{padding:'12px 16px',borderBottom:'1px solid '+BD,fontSize:13,fontWeight:600,color:DK}}>📦 Raw Materials ({rawMats.length})</div>
+            {rawMats.length===0?<Empty icon="📦" msg="No raw materials added yet"/>:(
+              <table style={{width:'100%',borderCollapse:'collapse'}}>
+                <thead><tr><TH ch="Material"/><TH ch="Unit"/><TH ch="Stock"/><TH ch="Reorder"/></tr></thead>
+                <tbody>{rawMats.map(r=><tr key={r.id}><TD><div style={{fontSize:13,fontWeight:600}}>{r.name}</div><div style={{fontSize:11,color:MD,fontFamily:'monospace'}}>{r.material_code}</div></TD><TD>{r.unit_of_measure}</TD><TD><span style={{fontWeight:700,color:Number(r.current_stock)<=Number(r.reorder_level)?RD:GR}}>{Number(r.current_stock).toLocaleString()}</span></TD><TD><span style={{fontSize:12,color:MD}}>{Number(r.reorder_level).toLocaleString()}</span></TD></tr>)}</tbody>
+              </table>
+            )}
+          </div>
+          <div style={{background:'white',border:'1px solid '+BD,borderRadius:12,overflow:'hidden'}}>
+            <div style={{padding:'12px 16px',borderBottom:'1px solid '+BD,fontSize:13,fontWeight:600,color:DK}}>🏭 Finished Goods ({subSkus.length})</div>
+            {subSkus.length===0?<Empty icon="🏭" msg="No sub-SKUs added yet"/>:(
+              <table style={{width:'100%',borderCollapse:'collapse'}}>
+                <thead><tr><TH ch="Sub-SKU"/><TH ch="Unit"/><TH ch="Stock"/><TH ch="Reorder"/></tr></thead>
+                <tbody>{subSkus.map(s=><tr key={s.id}><TD><div style={{fontSize:13,fontWeight:600}}>{s.name}</div><div style={{fontSize:11,color:MD}}>{s.parent_name}</div></TD><TD>{s.unit_of_measure}</TD><TD><span style={{fontWeight:700,color:Number(s.current_stock)<=Number(s.reorder_level)?RD:ST}}>{Number(s.current_stock).toLocaleString()}</span></TD><TD><span style={{fontSize:12,color:MD}}>{Number(s.reorder_level).toLocaleString()}</span></TD></tr>)}</tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      </>)}
+      {modal&&<Modal title="New Daily Production Entry" onClose={()=>setModal(false)} onSave={save} wide>
+        <FG>
+          <FI label="Machine / Parent SKU *"><Sel value={form.machine_id} onChange={v=>setForm({...form,machine_id:v,parent_sku_id:v})}><option value="">Select…</option>{parentSkus.map(p=><option key={p.id} value={p.id}>{p.sku_code} — {p.name}</option>)}</Sel></FI>
+          <FI label="Production Date *" half><Inp type="date" value={form.production_date} onChange={v=>setForm({...form,production_date:v})}/></FI>
+          <FI label="Shift" half><Sel value={form.shift} onChange={v=>setForm({...form,shift:v})}><option>Morning</option><option>Evening</option><option>Night</option></Sel></FI>
+          <FI label="Downtime (minutes)" half><Inp type="number" value={form.downtime_minutes} onChange={v=>setForm({...form,downtime_minutes:v})}/></FI>
+          {Number(form.downtime_minutes)>0&&<FI label="Downtime Reason" half><Inp value={form.downtime_reason} onChange={v=>setForm({...form,downtime_reason:v})}/></FI>}
+        </FG>
+        <div style={{marginTop:12}}>
+          <div style={{fontSize:13,fontWeight:600,color:DK,marginBottom:10}}>Sub-SKU Output</div>
+          {form.items.map((item,i)=>(
+            <div key={i} style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr auto',gap:10,marginBottom:10,alignItems:'end'}}>
+              <div><label style={{fontSize:11,fontWeight:600,color:MD,display:'block',marginBottom:4}}>Sub-SKU</label><select value={item.sub_sku_id} onChange={e=>setItem(i,'sub_sku_id',e.target.value)} style={{width:'100%',border:'1px solid '+BD,borderRadius:7,padding:'8px 10px',fontSize:13,outline:'none'}}><option value="">Select…</option>{subSkus.filter(s=>!form.machine_id||String(s.parent_sku_id)===String(form.machine_id)).map(s=><option key={s.id} value={s.id}>{s.sku_code} — {s.name}</option>)}</select></div>
+              <div><label style={{fontSize:11,fontWeight:600,color:MD,display:'block',marginBottom:4}}>Qty Produced</label><input type="number" value={item.quantity_produced} onChange={e=>setItem(i,'quantity_produced',e.target.value)} style={{width:'100%',border:'1px solid '+BD,borderRadius:7,padding:'8px 10px',fontSize:13,outline:'none'}}/></div>
+              <div><label style={{fontSize:11,fontWeight:600,color:MD,display:'block',marginBottom:4}}>Waste</label><input type="number" value={item.waste_quantity} onChange={e=>setItem(i,'waste_quantity',e.target.value)} style={{width:'100%',border:'1px solid '+BD,borderRadius:7,padding:'8px 10px',fontSize:13,outline:'none'}}/></div>
+              {form.items.length>1&&<button onClick={()=>rmItem(i)} style={{background:'#FEE2E2',border:'none',borderRadius:7,padding:'8px',cursor:'pointer',color:RD}}>✕</button>}
+            </div>
+          ))}
+          <button onClick={addItem} style={{background:LG,border:'1px dashed '+BD,borderRadius:7,padding:'7px 14px',fontSize:12,cursor:'pointer',color:MD,width:'100%'}}>+ Add Sub-SKU</button>
+          <div style={{marginTop:12,background:'#DCFCE7',border:'1px solid #A7F3D0',borderRadius:8,padding:'10px 13px',fontSize:12,color:'#065F46'}}>✓ On save: raw materials auto-deducted (BOM × qty), finished goods added to stock.</div>
+        </div>
+      </Modal>}
+    </div>
+  );
+};
+
+/* ─── ACCOUNTS ───────────────────────────────── */
+const AccountsPage=({toast})=>{
+  const [coa,coaLoad]=useApi('/accounts/coa','accounts');
+  const tColor={Asset:'#1D4ED8',Liability:RD,Equity:'#7C3AED',Revenue:GR,Expense:YL};
+  const tBg={Asset:'#DBEAFE',Liability:'#FEE2E2',Equity:'#EDE9FE',Revenue:'#DCFCE7',Expense:'#FEF9C3'};
+  return(
+    <div style={{padding:22,overflowY:'auto',height:'100%',display:'flex',flexDirection:'column',gap:14}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+        <div><div style={{fontSize:18,fontWeight:700,color:DK}}>Accounts & Finance</div><div style={{fontSize:13,color:MD,marginTop:2}}>Chart of Accounts · Journal Entries · Reports</div></div>
+        <button onClick={()=>toast('Journal entry form — coming in next sprint')} style={{background:N,color:'white',border:'none',borderRadius:8,padding:'9px 16px',fontSize:13,fontWeight:600,cursor:'pointer'}}>+ Journal Entry</button>
+      </div>
+      <div style={{background:'#EFF6FF',border:'1px solid #BFDBFE',borderRadius:8,padding:'9px 13px',fontSize:12,color:'#1E40AF',flexShrink:0}}>Chart of Accounts is pre-loaded. All transactions (sales, purchases, expenses, payroll) auto-post journal entries to the correct accounts.</div>
+      <div style={{background:'white',border:'1px solid '+BD,borderRadius:12,overflow:'hidden',flex:1}}>
+        {coaLoad?<Spinner/>:coa.length===0?<Empty icon="📒" msg="No accounts found."/>:(
+          <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <thead><tr><TH ch="Code"/><TH ch="Account Name"/><TH ch="Type"/><TH ch="Opening Dr"/><TH ch="Opening Cr"/></tr></thead>
+            <tbody>{coa.map(a=>(
+              <tr key={a.id} style={{background:a.is_group?LG+'80':'white'}}>
+                <TD><span style={{fontFamily:'monospace',fontSize:12,color:ST}}>{a.account_code}</span></TD>
+                <TD><span style={{paddingLeft:a.parent_code?14:0,fontWeight:a.is_group?700:400}}>{a.account_name}</span></TD>
+                <TD>{a.account_type&&<span style={{background:tBg[a.account_type]||LG,color:tColor[a.account_type]||MD,fontSize:10,fontWeight:700,padding:'1px 7px',borderRadius:20}}>{a.account_type}</span>}</TD>
+                <TD><span style={{fontFamily:'monospace',fontSize:12,color:Number(a.opening_balance_dr)>0?N:MD}}>{Number(a.opening_balance_dr)>0?Number(a.opening_balance_dr).toLocaleString():'—'}</span></TD>
+                <TD><span style={{fontFamily:'monospace',fontSize:12,color:Number(a.opening_balance_cr)>0?RD:MD}}>{Number(a.opening_balance_cr)>0?Number(a.opening_balance_cr).toLocaleString():'—'}</span></TD>
+              </tr>
+            ))}</tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/* ─── USER MANAGEMENT ────────────────────────── */
+const UsersPage=({toast})=>{
+  const [users,uLoad,reloadU]=useApi('/users','users');
+  const [roles,rLoad]=useApi('/roles','roles');
+  const [modal,setModal]=useState(null);
+  const [form,setForm]=useState({});
+  const [confirmDel,setConfirmDel]=useState(null);
+  const [search,setSearch]=useState('');
+  const roleOf=id=>roles.find(r=>r.id===id)||{name:id,color:MD,bg_color:LG,tag:'??'};
+  const fu=users.filter(u=>!search||u.name?.toLowerCase().includes(search.toLowerCase())||u.email?.toLowerCase().includes(search.toLowerCase()));
+  const save=async()=>{
+    if(!form.name||!form.email){toast('Name and email are required','error');return;}
+    try{
+      if(modal==='add'){const r=await api.post('/users',form);toast('User created. Temp password: '+r.temp_password);}
+      else{await api.put('/users/'+form.id,form);toast('User updated');}
+      setModal(null);reloadU();
+    }catch(e){toast(e.message,'error');}
+  };
+  const del=async u=>{
+    try{await api.del('/users/'+u.id);toast('User removed');setConfirmDel(null);reloadU();}catch(e){toast(e.message,'error');}
+  };
+  const toggle=async u=>{
+    try{await api.put('/users/'+u.id,{status:u.status==='Active'?'Inactive':'Active'});toast('User '+(u.status==='Active'?'deactivated':'activated'));reloadU();}catch(e){toast(e.message,'error');}
+  };
+  return(
+    <div style={{padding:22,overflowY:'auto',height:'100%',display:'flex',flexDirection:'column',gap:14}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+        <div><div style={{fontSize:18,fontWeight:700,color:DK}}>User Management</div><div style={{fontSize:13,color:MD,marginTop:2}}>{users.filter(u=>u.status==='Active').length} active · {users.length} total</div></div>
+        <button onClick={()=>{setForm({name:'',email:'',phone:'',role_id:'purchase_officer',status:'Active',password:''});setModal('add');}} style={{background:N,color:'white',border:'none',borderRadius:8,padding:'9px 16px',fontSize:13,fontWeight:600,cursor:'pointer'}}>+ Add User</button>
+      </div>
+      <div style={{display:'flex',gap:10,flexShrink:0}}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search users…" style={{flex:1,maxWidth:300,border:'1px solid '+BD,borderRadius:7,padding:'8px 12px',fontSize:13,outline:'none'}}/>
+      </div>
+      <div style={{background:'white',border:'1px solid '+BD,borderRadius:12,overflow:'hidden',flex:1}}>
+        {uLoad?<Spinner/>:fu.length===0?<Empty icon="👤" msg="No users found."/>:(
+          <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <thead><tr><TH ch="User"/><TH ch="Email"/><TH ch="Role"/><TH ch="Last Login"/><TH ch="Status"/><TH ch=""/></tr></thead>
+            <tbody>{fu.map((u,i)=>{
+              const r=roleOf(u.role_id);
+              return(<tr key={u.id} style={{background:i%2===0?'white':LG+'80'}}>
+                <TD><div style={{display:'flex',alignItems:'center',gap:9}}><Av ini={u.initials||'??'} color={r.color||N} bg={r.bg_color||'#E8EEF7'} size={30}/><span style={{fontSize:13,fontWeight:600}}>{u.name}</span></div></TD>
+                <TD><span style={{fontSize:12,color:MD}}>{u.email}</span></TD>
+                <TD><Chip c={r.color||MD} bg={r.bg_color||LG}>{r.name}</Chip></TD>
+                <TD><span style={{fontSize:12,color:MD}}>{u.last_login_fmt||'Never'}</span></TD>
+                <TD><span style={{...sStyle(u.status),fontSize:11}}>{u.status}</span></TD>
+                <TD><div style={{display:'flex',gap:5}}>
+                  <button onClick={()=>{setForm({...u,password:''});setModal('edit');}} style={{background:LG,border:'1px solid '+BD,borderRadius:5,padding:'4px 9px',fontSize:11,cursor:'pointer'}}>Edit</button>
+                  <button onClick={()=>toggle(u)} style={{background:u.status==='Active'?'#FFF7ED':'#F0FDF4',border:'1px solid '+(u.status==='Active'?'#FED7AA':'#BBF7D0'),borderRadius:5,padding:'4px 9px',fontSize:11,cursor:'pointer',color:u.status==='Active'?AM:GR,fontWeight:500}}>{u.status==='Active'?'Deactivate':'Activate'}</button>
+                  {u.id!==1&&<button onClick={()=>setConfirmDel(u)} style={{background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:5,padding:'4px 9px',fontSize:11,cursor:'pointer',color:RD}}>Del</button>}
+                </div></TD>
+              </tr>);
+            })}</tbody>
+          </table>
+        )}
+      </div>
+      {modal&&<Modal title={modal==='add'?'Add New User':'Edit User'} onClose={()=>setModal(null)} onSave={save}>
+        <div style={{display:'flex',flexDirection:'column',gap:13}}>
+          {[{l:'Full Name',k:'name',t:'text'},{l:'Email Address',k:'email',t:'email'},{l:'Phone',k:'phone',t:'text'}].map(f=>(
+            <div key={f.k}><label style={{fontSize:12,fontWeight:600,color:MD,display:'block',marginBottom:5}}>{f.l}</label><Inp value={form[f.k]} onChange={v=>setForm({...form,[f.k]:v})} type={f.t}/></div>
+          ))}
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:13}}>
+            <div><label style={{fontSize:12,fontWeight:600,color:MD,display:'block',marginBottom:5}}>Role</label><Sel value={form.role_id} onChange={v=>setForm({...form,role_id:v})}>{roles.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</Sel></div>
+            <div><label style={{fontSize:12,fontWeight:600,color:MD,display:'block',marginBottom:5}}>Status</label><Sel value={form.status} onChange={v=>setForm({...form,status:v})}><option>Active</option><option>Inactive</option></Sel></div>
+          </div>
+          <div><label style={{fontSize:12,fontWeight:600,color:MD,display:'block',marginBottom:5}}>{modal==='add'?'Password':'New Password (blank = keep current)'}</label><Inp type="password" value={form.password||''} onChange={v=>setForm({...form,password:v})}/></div>
+        </div>
+      </Modal>}
+      {confirmDel&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <div style={{background:'white',borderRadius:14,width:340,padding:28,textAlign:'center',boxShadow:'0 20px 50px rgba(0,0,0,.2)'}}>
+          <div style={{fontSize:32,marginBottom:10}}>⚠️</div>
+          <div style={{fontSize:15,fontWeight:700,color:DK,marginBottom:8}}>Remove user?</div>
+          <div style={{fontSize:13,color:MD,marginBottom:22}}><b>{confirmDel.name}</b> will be permanently removed.</div>
+          <div style={{display:'flex',gap:10,justifyContent:'center'}}>
+            <button onClick={()=>setConfirmDel(null)} style={{background:'none',border:'1px solid '+BD,borderRadius:7,padding:'9px 18px',fontSize:13,cursor:'pointer'}}>Cancel</button>
+            <button onClick={()=>del(confirmDel)} style={{background:RD,border:'none',borderRadius:7,padding:'9px 18px',fontSize:13,fontWeight:600,cursor:'pointer',color:'white'}}>Remove</button>
+          </div>
+        </div>
+      </div>}
+    </div>
+  );
+};
+
+/* ─── PERMISSIONS ────────────────────────────── */
+const MODS=[{id:'purchase',name:'Purchase Management',icon:'📦',desc:'POs, vendors, GRN'},{id:'expense',name:'Expense Management',icon:'💳',desc:'Company expenses'},{id:'sales',name:'Sales Management',icon:'📊',desc:'Orders, invoices'},{id:'accounts',name:'Accounts & Finance',icon:'📒',desc:'Balance sheet, COA'},{id:'hr',name:'HR Management',icon:'👥',desc:'Employees, payroll'},{id:'delivery',name:'Delivery Management',icon:'🚛',desc:'Deliveries, fleet'},{id:'distributor',name:'Distributor Management',icon:'🏪',desc:'Distributor accounts'},{id:'production',name:'Production & Stock',icon:'🏭',desc:'Daily production'}];
+const PK=['view','add','edit','delete'];
+const PC={view:ST,add:GR,edit:AM,delete:RD};
+const PL={view:'View',add:'Add',edit:'Edit',delete:'Delete'};
+
+const PermissionsPage=({toast})=>{
+  const [roles,rLoad]=useApi('/roles','roles');
+  const [serverPerms,pLoad,reloadP]=useApi('/permissions','permissions');
+  const [local,setLocal]=useState({});
+  const [sel,setSel]=useState('super_admin');
+  const [dirty,setDirty]=useState(false);
+
+  useEffect(()=>{if(Object.keys(serverPerms).length>0)setLocal(serverPerms);},[serverPerms]);
+
+  const role=roles.find(r=>r.id===sel)||{};
+  const locked=role.is_locked===1||role.is_locked==='1'||role.is_locked===true;
+  const rp=local[sel]||{};
+
+  const toggle=(mod,p)=>{
+    if(locked)return;
+    setLocal(prev=>{
+      const cur=prev[sel]?.[mod]||{view:false,add:false,edit:false,delete:false};
+      let updated;
+      if(p==='view'&&cur.view)updated={view:false,add:false,edit:false,delete:false};
+      else if(p!=='view'&&!cur.view)updated={...cur,view:true,[p]:!cur[p]};
+      else updated={...cur,[p]:!cur[p]};
+      return{...prev,[sel]:{...prev[sel],[mod]:updated}};
+    });
+    setDirty(true);
+  };
+
+  const toggleAll=(mod,on)=>{
+    if(locked)return;
+    setLocal(prev=>({...prev,[sel]:{...prev[sel],[mod]:{view:on,add:on,edit:on,delete:on}}}));
+    setDirty(true);
+  };
+
+  const save=async()=>{
+    try{await api.put('/permissions/'+sel,local[sel]||{});setDirty(false);toast('Permissions saved');}catch(e){toast(e.message,'error');}
+  };
+
+  const cnt=MODS.filter(m=>{const p=local[sel]?.[m.id];return p?.view||p?.view===1;}).length;
+
+  return(
+    <div style={{padding:22,overflowY:'auto',height:'100%',display:'flex',flexDirection:'column',gap:16}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+        <div><div style={{fontSize:18,fontWeight:700,color:DK}}>Role Permissions</div><div style={{fontSize:13,color:MD,marginTop:2}}>Set View · Add · Edit · Delete per module for each role</div></div>
+        <button onClick={save} disabled={!dirty} style={{background:dirty?GR:'#E5E7EB',border:'none',borderRadius:8,padding:'9px 18px',fontSize:13,fontWeight:700,cursor:dirty?'pointer':'default',color:dirty?'white':MD}}>{dirty?'Save Changes ✓':'All Saved'}</button>
+      </div>
+      {(rLoad||pLoad)?<Spinner/>:(
+        <div style={{display:'flex',gap:16,flex:1}}>
+          <div style={{width:205,flexShrink:0}}>
+            <div style={{background:'white',border:'1px solid '+BD,borderRadius:12,overflow:'hidden'}}>
+              <div style={{padding:'10px 12px',borderBottom:'1px solid '+BD,fontSize:11,fontWeight:700,color:MD,textTransform:'uppercase',letterSpacing:.5}}>Select Role</div>
+              {roles.map(r=>{
+                const s=sel===r.id;
+                const c=MODS.filter(m=>{const p=local[r.id]?.[m.id];return p?.view||p?.view===1;}).length;
+                return(
+                  <button key={r.id} onClick={()=>{setSel(r.id);setDirty(false);}} style={{width:'100%',background:s?LG:'white',border:'none',borderLeft:s?'3px solid '+(r.color||N):'3px solid transparent',cursor:'pointer',padding:'10px 12px',textAlign:'left',borderBottom:'1px solid '+BD}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8}}>
+                      <Av ini={r.tag} color={r.color||N} bg={r.bg_color||'#E8EEF7'} size={26}/>
+                      <div style={{flex:1}}><div style={{fontSize:12,fontWeight:s?700:500,color:DK}}>{r.name}</div><div style={{fontSize:10,color:MD}}>{c}/{MODS.length} modules</div></div>
+                      {locked&&sel===r.id&&<span style={{fontSize:10}}>🔒</span>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div style={{flex:1,display:'flex',flexDirection:'column',gap:12}}>
+            <div style={{background:'white',border:'1px solid '+BD,borderRadius:12,overflow:'hidden'}}>
+              <div style={{background:role.bg_color||'#E8EEF7',padding:'13px 18px',borderBottom:'1px solid '+BD,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <div style={{display:'flex',alignItems:'center',gap:12}}>
+                  <Av ini={role.tag||'??'} color={role.color||N} bg={role.bg_color||'#E8EEF7'} size={38}/>
+                  <div><div style={{fontSize:15,fontWeight:700,color:role.color||N}}>{role.name}</div><div style={{fontSize:11,color:MD}}>{cnt}/{MODS.length} modules accessible</div></div>
+                </div>
+                {locked&&<Chip c={role.color||N} bg="rgba(255,255,255,.6)">System Locked — Full Access</Chip>}
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 65px 65px 65px 65px 60px',padding:'9px 18px',borderBottom:'1px solid '+BD,background:LG}}>
+                <div style={{fontSize:11,fontWeight:700,color:MD,textTransform:'uppercase',letterSpacing:.5}}>Module</div>
+                {PK.map(p=><div key={p} style={{textAlign:'center',fontSize:11,fontWeight:700,color:PC[p],textTransform:'uppercase',letterSpacing:.5}}>{PL[p]}</div>)}
+                <div style={{textAlign:'center',fontSize:11,fontWeight:700,color:MD,textTransform:'uppercase'}}>All</div>
+              </div>
+              {MODS.map((m,i)=>{
+                const mp=rp[m.id]||{view:false,add:false,edit:false,delete:false};
+                const allOn=PK.every(p=>mp[p]||mp[p]===1||mp[p]===true);
+                const hasP=pk=>mp[pk]||mp[pk]===1||mp[pk]===true;
+                return(
+                  <div key={m.id} style={{display:'grid',gridTemplateColumns:'1fr 65px 65px 65px 65px 60px',padding:'11px 18px',borderBottom:i<MODS.length-1?'1px solid '+BD:'none',background:i%2===0?'white':LG+'60',alignItems:'center'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:10}}><span style={{fontSize:18}}>{m.icon}</span><div><div style={{fontSize:13,fontWeight:600,color:DK}}>{m.name}</div><div style={{fontSize:11,color:MD}}>{m.desc}</div></div></div>
+                    {PK.map(p=>(
+                      <div key={p} style={{display:'flex',justifyContent:'center'}}>
+                        {locked?(
+                          <div style={{width:24,height:24,borderRadius:5,background:PC[p],display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,color:'white'}}>✓</div>
+                        ):(
+                          <button onClick={()=>toggle(m.id,p)} style={{width:26,height:26,borderRadius:6,border:'none',cursor:'pointer',background:hasP(p)?PC[p]:'#E2E8F0',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,color:hasP(p)?'white':'#94A3B8',transition:'all .15s'}}>
+                            {hasP(p)?'✓':''}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <div style={{display:'flex',justifyContent:'center'}}>
+                      {!locked?<button onClick={()=>toggleAll(m.id,!allOn)} style={{background:allOn?N:'transparent',border:'1.5px solid '+(allOn?N:BD),borderRadius:6,padding:'2px 9px',fontSize:11,cursor:'pointer',color:allOn?'white':MD,fontWeight:600}}>{allOn?'All ✓':'All'}</button>:<span style={{fontSize:11,color:MD}}>✓</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* ─── SIDEBAR ────────────────────────────────── */
+const NAV=[
+  {sec:'Main',items:[{id:'dashboard',label:'Dashboard',icon:'📊'}]},
+  {sec:'Modules',items:[{id:'purchase',label:'Purchase',icon:'📦'},{id:'expense',label:'Expenses',icon:'💳'},{id:'sales',label:'Sales',icon:'📊'},{id:'accounts',label:'Accounts',icon:'📒'},{id:'hr',label:'HR',icon:'👥'},{id:'delivery',label:'Delivery',icon:'🚛'},{id:'distributor',label:'Distributor',icon:'🏪'},{id:'production',label:'Production & Stock',icon:'🏭'}]},
+  {sec:'Admin',items:[{id:'users',label:'User Management',icon:'👤'},{id:'permissions',label:'Role Permissions',icon:'🔐'}]},
+];
+
+/* ─── APP ────────────────────────────────────── */
+function App(){
+  const [user,setUser]=useState(null);
+  const [checking,setChecking]=useState(true);
+  const [page,setPage]=useState('dashboard');
+  const [collapsed,setCollapsed]=useState(false);
+  const [toast,setToast]=useState(null);
+  const [dropOpen,setDropOpen]=useState(false);
+
+  useEffect(()=>{
+    api.get('/auth/me')
+      .then(d=>{if(d.user)setUser(d.user);})
+      .catch(()=>{})
+      .finally(()=>setChecking(false));
+  },[]);
+
+  const showToast=(msg,type='success')=>setToast({msg,type});
+  const logout=async()=>{try{await api.post('/auth/logout');}catch(e){}setUser(null);setPage('dashboard');setDropOpen(false);};
+
+  if(checking)return(
+    <div style={{display:'flex',height:'100vh',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:14}}>
+      <svg width="48" height="48" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="21" stroke={AM} strokeWidth="3"/><circle cx="24" cy="24" r="13" stroke={N} strokeWidth="3"/><circle cx="24" cy="24" r="5" fill={AM}/></svg>
+      <div style={{fontSize:14,color:MD}}>Loading Aknan ERP…</div>
+    </div>
+  );
+
+  if(!user)return <Login onLogin={u=>setUser(u)}/>;
+
+  const label=[...NAV.flatMap(s=>s.items)].find(i=>i.id===page)?.label||'Dashboard';
+  const ini=(user.name||'').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  const props={toast:showToast,setPage};
+
+  const Content=()=>{
+    switch(page){
+      case'dashboard':   return <Dashboard setPage={setPage} user={user}/>;
+      case'purchase':    return <PurchasePage {...props}/>;
+      case'expense':     return <ExpensePage {...props}/>;
+      case'sales':       return <SalesPage {...props}/>;
+      case'accounts':    return <AccountsPage {...props}/>;
+      case'hr':          return <HRPage {...props}/>;
+      case'delivery':    return <DeliveryPage {...props}/>;
+      case'distributor': return <DistributorPage {...props}/>;
+      case'production':  return <ProductionPage {...props}/>;
+      case'users':       return <UsersPage {...props}/>;
+      case'permissions': return <PermissionsPage {...props}/>;
+      default:           return null;
+    }
+  };
+
+  return(
+    <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
+      {/* Sidebar */}
+      <div style={{width:collapsed?66:228,background:N,height:'100vh',display:'flex',flexDirection:'column',transition:'width .25s',overflow:'hidden',flexShrink:0}}>
+        <div style={{padding:collapsed?'14px 0':'18px 14px',borderBottom:'1px solid rgba(255,255,255,.1)',display:'flex',alignItems:'center',gap:10,justifyContent:collapsed?'center':'flex-start'}}>
+          <svg width="30" height="30" viewBox="0 0 48 48" fill="none" style={{flexShrink:0}}><circle cx="24" cy="24" r="21" stroke={AM} strokeWidth="3"/><circle cx="24" cy="24" r="13" stroke="white" strokeWidth="2.5"/><circle cx="24" cy="24" r="5" fill={AM}/></svg>
+          {!collapsed&&<div><div style={{color:'white',fontWeight:700,fontSize:14}}>AKNAN ERP</div><div style={{color:'rgba(255,255,255,.4)',fontSize:9,letterSpacing:1.2,textTransform:'uppercase'}}>app.aknans.sa</div></div>}
+        </div>
+        <div style={{flex:1,overflowY:'auto',padding:'6px 0'}}>
+          {NAV.map(sec=>(
+            <div key={sec.sec} style={{marginBottom:3}}>
+              {!collapsed&&<div style={{color:'rgba(255,255,255,.3)',fontSize:9.5,fontWeight:700,letterSpacing:1.4,textTransform:'uppercase',padding:'10px 14px 3px'}}>{sec.sec}</div>}
+              {sec.items.map(item=>{
+                const a=page===item.id;
+                return(
+                  <button key={item.id} onClick={()=>setPage(item.id)} title={collapsed?item.label:''} style={{width:'100%',background:a?'rgba(255,255,255,.12)':'transparent',border:'none',cursor:'pointer',padding:collapsed?'9px 0':'9px 14px',display:'flex',alignItems:'center',gap:9,color:a?'white':'rgba(255,255,255,.6)',fontSize:12.5,fontWeight:a?600:400,textAlign:'left',borderLeft:a?'3px solid '+AM:'3px solid transparent',justifyContent:collapsed?'center':'flex-start'}}>
+                    <span style={{fontSize:15,flexShrink:0}}>{item.icon}</span>
+                    {!collapsed&&<span style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{item.label}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Main */}
+      <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        <div style={{height:52,background:'white',borderBottom:'1px solid '+BD,display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 22px',flexShrink:0}}>
+          <div style={{display:'flex',alignItems:'center',gap:12}}>
+            <button onClick={()=>setCollapsed(!collapsed)} style={{background:'none',border:'none',cursor:'pointer',fontSize:17,color:MD,padding:4}}>☰</button>
+            <div style={{fontSize:14,fontWeight:600,color:DK}}>{label}</div>
+          </div>
+          <div style={{position:'relative'}}>
+            <button onClick={()=>setDropOpen(!dropOpen)} style={{background:dropOpen?LG:'none',border:'1px solid '+(dropOpen?BD:'transparent'),borderRadius:8,padding:'6px 12px',cursor:'pointer',display:'flex',alignItems:'center',gap:8}}>
+              <Av ini={ini} color={user.color||N} bg={user.bg||'#E8EEF7'} size={28}/>
+              <div style={{textAlign:'left'}}><div style={{fontSize:13,fontWeight:600,color:DK}}>{user.name}</div><div style={{fontSize:11,color:MD}}>{user.role_name||'User'}</div></div>
+              <span style={{color:MD,fontSize:12}}>▾</span>
+            </button>
+            {dropOpen&&(
+              <div style={{position:'absolute',top:'calc(100% + 4px)',right:0,background:'white',border:'1px solid '+BD,borderRadius:10,boxShadow:'0 8px 24px rgba(0,0,0,.12)',minWidth:190,overflow:'hidden',zIndex:100}}>
+                <div style={{padding:'10px 14px',borderBottom:'1px solid '+BD}}>
+                  <div style={{fontSize:12,color:MD}}>Signed in as</div>
+                  <div style={{fontSize:13,fontWeight:600,color:DK}}>{user.email}</div>
+                </div>
+                <button onClick={()=>{setDropOpen(false);logout();}} style={{width:'100%',background:'none',border:'none',padding:'10px 14px',textAlign:'left',cursor:'pointer',fontSize:13,color:RD,display:'flex',alignItems:'center',gap:8}}>⏻ Sign out</button>
+              </div>
+            )}
+          </div>
+        </div>
+        <div style={{flex:1,overflow:'hidden'}}><Content/></div>
+      </div>
+      {toast&&<Toast msg={toast.msg} type={toast.type} onClose={()=>setToast(null)}/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
